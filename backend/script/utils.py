@@ -11,9 +11,18 @@ from datetime import datetime as dt
 import pygetwindow as gw
 from PIL import ImageGrab, Image
 import win32ui
+from rapidocr_onnxruntime import RapidOCR
 
-# make process DPI-aware so GetCursorPos and ImageGrab agree on pixels
-ctypes.windll.user32.SetProcessDPIAware()
+_ocr = RapidOCR()  # ponytail: one engine instance, models load once
+
+# ponytail: per-monitor v2 — survives mixed-DPI monitors; fall back if API missing
+try:
+    ctypes.windll.user32.SetProcessDpiAwarenessContext(-4)  # PER_MONITOR_AWARE_V2
+except (AttributeError, OSError):
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    except Exception:
+        ctypes.windll.user32.SetProcessDPIAware()
 
 WIN_NAME = "Growtopia"
 
@@ -75,22 +84,12 @@ def get_area():
     return top_left, bottom_right
 
 def grab_window(bbox=None):
-    # ponytail: PrintWindow flag 3 = PW_CLIENTONLY | PW_RENDERFULLCONTENT. Black image? Growtopia is blocking it.
+    # ponytail: screen capture, not PrintWindow — PrintWindow flashes Growtopia (DirectX)
+    # and the re-render drifts from baseline → false fish/freeze. Growtopia must stay
+    # visible (uncovered); foreground focus not required.
+    cx0, cy0 = win32gui.ClientToScreen(HWND, (0, 0))
     _, _, w, h = win32gui.GetClientRect(HWND)
-    hwnd_dc = win32gui.GetWindowDC(HWND)
-    mfc_dc = win32ui.CreateDCFromHandle(hwnd_dc)
-    save_dc = mfc_dc.CreateCompatibleDC()
-    bmp = win32ui.CreateBitmap()
-    bmp.CreateCompatibleBitmap(mfc_dc, w, h)
-    save_dc.SelectObject(bmp)
-    ctypes.windll.user32.PrintWindow(HWND, save_dc.GetSafeHdc(), 3)
-    info = bmp.GetInfo()
-    img = Image.frombuffer('RGB', (info['bmWidth'], info['bmHeight']),
-                           bmp.GetBitmapBits(True), 'raw', 'BGRX', 0, 1)
-    win32gui.DeleteObject(bmp.GetHandle())
-    save_dc.DeleteDC()
-    mfc_dc.DeleteDC()
-    win32gui.ReleaseDC(HWND, hwnd_dc)
+    img = ImageGrab.grab(bbox=(cx0, cy0, cx0 + w, cy0 + h), all_screens=True)
     return img.crop(bbox) if bbox else img
 
 def get_image(img_name : str):
@@ -106,9 +105,34 @@ def match(area: tuple[int, int, int, int], ori_img_path: str, threshold: float =
     hay = cv2.cvtColor(np.array(hay_pil), cv2.COLOR_RGB2BGR)
     needle = cv2.imread(ori_img_path)
     res = cv2.matchTemplate(hay, needle, cv2.TM_CCOEFF_NORMED)
-    _, score, _, loc = cv2.minMaxLoc(res)
-    if score < threshold:
-        return None
-    h, w = needle.shape[:2]
-    cx, cy = loc[0] + w // 2, loc[1] + h // 2
-    return {"score": score, "top_left": loc, "center": (cx, cy)}
+    _, score, _, _ = cv2.minMaxLoc(res)
+    return score >= threshold
+
+def read_text(area: tuple[int, int, int, int], digits_only: bool = False):
+    # ponytail: rapidocr; upscale 2x for tiny game text
+    img = grab_window(area)
+    img = img.resize((img.width * 2, img.height * 2))
+    result, _ = _ocr(np.array(img))
+    if not result:
+        return ""
+    text = " ".join(r[1] for r in result)
+    if digits_only:
+        text = "".join(c for c in text if c.isdigit())
+    return text
+
+def read_number(area: tuple[int, int, int, int]) -> int | None:
+    s = read_text(area, digits_only=True)
+    return int(s) if s else None
+
+def find_numbers(area=None, min_digit_ratio: float = 0.6):
+    # ponytail: OCR the area (or whole window), return each numeric region separately
+    img = grab_window(area) if area else grab_window()
+    result, _ = _ocr(np.array(img))
+    out = []
+    for box, text, conf in result or []:
+        digits = "".join(c for c in text if c.isdigit())
+        if digits and len(digits) / max(len(text), 1) >= min_digit_ratio:
+            out.append({"value": int(digits), "raw": text, "box": box, "conf": conf})
+    return out
+
+# get_image("test")

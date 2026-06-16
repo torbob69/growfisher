@@ -1,49 +1,119 @@
-from utils import get_mouse_pos, get_image, click, press
-import time, random
+from utils import get_mouse_pos, get_image, click, press, match, read_number
+import time, random, keyboard
+from threading import Event
 
-class Autofisher():
-    def __init__(self):
-        print("Point at bait position and press X when done.")
-        self.bait_pos = get_mouse_pos()
-        print(f"bait position initialized at{self.bait_pos}")
-        
-        print("Point at water position and press X when done.")
-        self.water_pos = get_mouse_pos()
-        print(f"water position initialized at{self.water_pos}")
-        
-        print("Point at deto position and press X when done.")
-        self.deto_pos = get_mouse_pos()
-        print(f"deto position initialized at{self.deto_pos}")
-        
-        print("Point at first_fish position and press X when done.")
-        self.first_fish_pos = get_mouse_pos()
-        print(f"first_fish position initialized at{self.first_fish_pos}")
-        
-        print("Point at recycle button position and press X when done.")
-        self.recycle_pos = get_mouse_pos()
-        print(f"recycle position initialized at{self.recycle_pos}")
 
-        
-        self.water_img = get_image("water")
-        self.splash_img = get_image("splash")
-        self.emptier_img = get_image("emptier")
-        self.empty_fish_img = get_image("empty_fish")
-        
-    
-    def random_delay(self):
-        delay_int = random.randint(10, 35)
-        delay_float = float(delay_int/100)
-        return delay_float
-    
-    def check_water_area(self):
-        pass
-    
-    def loop(self):
+class Autofisher:
+    def __init__(self, cfg: dict | None = None, stop_event: Event | None = None,
+                 on_log=None, paused: callable = lambda: False):
+        # ponytail: cfg = pre-captured dict from GUI. None = old interactive flow.
+        self.stop_event = stop_event or Event()
+        self.on_log = on_log or (lambda msg: print(msg))
+        self.is_paused = paused
+        if cfg is None:
+            cfg = self._interactive_calibrate()
+        for k, v in cfg.items():
+            setattr(self, k, v)
+
+    def _interactive_calibrate(self):
+        cfg = {}
+        for name in ("bait", "water", "deto", "first_fish", "recycle"):
+            print(f"Point at {name} position and press X when done.")
+            cfg[f"{name}_pos"] = get_mouse_pos()
+        for key, save in (("water_img", "water"), ("splash_img", "splash"),
+                          ("emptier_img", "emptier"), ("empty_fish_img", "empty_fish"),
+                          ("number_bbox", "number_bbox")):
+            cfg[key] = get_image(save)
+        return cfg
+
+    def log(self, msg):
+        self.on_log(msg)
+
+    def wait_while_paused(self):
+        while self.is_paused() and not self.stop_event.is_set():
+            time.sleep(0.1)
+
+    def delay(self):
+        return random.uniform(0.1, 0.35)
+
+    def stopped(self):
+        return self.stop_event.is_set() or keyboard.is_pressed('q')
+
+    def cast(self):
+        time.sleep(self.delay())
         click(*self.bait_pos)
-        time.sleep(self.random_delay())
+        time.sleep(self.delay())
         click(*self.water_pos)
-        
-        # check for stoppers
-        
 
-autofisher = Autofisher()
+    def recycle_inventory(self):
+        while not match(self.empty_fish_img, "empty_fish.png"):
+            if self.stopped():
+                return
+            click(*self.first_fish_pos)
+            time.sleep(self.delay())
+            click(*self.recycle_pos)
+            time.sleep(2)
+
+            number = read_number(self.number_bbox)
+            for letter in (str(number) if number is not None else ""):
+                time.sleep(0.03)
+                press(letter)
+            press("enter")
+            time.sleep(2)
+            
+            click(*self.first_fish_pos)
+
+    CAST_COOLDOWN = 1.5  # ponytail: blanks detection during cast/catch animations
+
+    def loop(self):
+        self.log("autofisher running")
+        self.fish = 0
+        self.cast()
+        last_cast = time.time()
+
+        while not self.stopped():
+            self.wait_while_paused()
+            if self.stopped(): break
+
+            # cooldown — skip every check while the cast/catch is still animating
+            if time.time() - last_cast < self.CAST_COOLDOWN:
+                time.sleep(0.1)
+                continue
+
+            if not match(self.water_img, "water.png"):
+                self.log("water frozen → deto")
+                time.sleep(self.delay())
+                click(*self.deto_pos)
+                time.sleep(self.delay())
+                click(*self.water_pos)
+                time.sleep(self.delay())
+                
+                self.cast()
+                last_cast = time.time()
+                continue
+
+            if match(self.emptier_img, "emptier.png"):
+                self.log("inventory full → recycle")
+                self.recycle_inventory()
+                self.cast()
+                last_cast = time.time()
+                continue
+
+            if not match(self.splash_img, "splash.png"):
+                click(*self.water_pos)
+                time.sleep(self.delay())
+                
+                self.fish += 1
+                self.log(f"caught (total: {self.fish})")
+                time.sleep(0.5)
+                self.cast()
+                last_cast = time.time()
+                continue
+
+            time.sleep(0.1)
+
+        self.log("autofisher stopped")
+
+
+if __name__ == "__main__":
+    Autofisher().loop()
