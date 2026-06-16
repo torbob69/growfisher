@@ -9,7 +9,8 @@ import numpy as np
 
 from datetime import datetime as dt
 import pygetwindow as gw
-from PIL import ImageGrab
+from PIL import ImageGrab, Image
+import win32ui
 
 # make process DPI-aware so GetCursorPos and ImageGrab agree on pixels
 ctypes.windll.user32.SetProcessDPIAware()
@@ -73,16 +74,41 @@ def get_area():
     
     return top_left, bottom_right
 
+def grab_window(bbox=None):
+    # ponytail: PrintWindow flag 3 = PW_CLIENTONLY | PW_RENDERFULLCONTENT. Black image? Growtopia is blocking it.
+    _, _, w, h = win32gui.GetClientRect(HWND)
+    hwnd_dc = win32gui.GetWindowDC(HWND)
+    mfc_dc = win32ui.CreateDCFromHandle(hwnd_dc)
+    save_dc = mfc_dc.CreateCompatibleDC()
+    bmp = win32ui.CreateBitmap()
+    bmp.CreateCompatibleBitmap(mfc_dc, w, h)
+    save_dc.SelectObject(bmp)
+    ctypes.windll.user32.PrintWindow(HWND, save_dc.GetSafeHdc(), 3)
+    info = bmp.GetInfo()
+    img = Image.frombuffer('RGB', (info['bmWidth'], info['bmHeight']),
+                           bmp.GetBitmapBits(True), 'raw', 'BGRX', 0, 1)
+    win32gui.DeleteObject(bmp.GetHandle())
+    save_dc.DeleteDC()
+    mfc_dc.DeleteDC()
+    win32gui.ReleaseDC(HWND, hwnd_dc)
+    return img.crop(bbox) if bbox else img
+
 def get_image(img_name : str):
     top_left, bottom_right = get_area()
-    # client coords -> screen coords for ImageGrab
-    l, t = win32gui.ClientToScreen(HWND, top_left)
-    r, b = win32gui.ClientToScreen(HWND, bottom_right)
-    img = ImageGrab.grab(bbox=(l, t, r, b), all_screens=True)
+    bbox = (*top_left, *bottom_right)  # client coords
+    img = grab_window(bbox)
     img.save(f"{img_name}.png")
-    return img
+    return bbox
 
 
-# get_image("testing")
-# get_point = get_mouse_pos()
-# print(f"pointed: {get_point}")
+def match(area: tuple[int, int, int, int], ori_img_path: str, threshold: float = 0.85):
+    hay_pil = grab_window(area)
+    hay = cv2.cvtColor(np.array(hay_pil), cv2.COLOR_RGB2BGR)
+    needle = cv2.imread(ori_img_path)
+    res = cv2.matchTemplate(hay, needle, cv2.TM_CCOEFF_NORMED)
+    _, score, _, loc = cv2.minMaxLoc(res)
+    if score < threshold:
+        return None
+    h, w = needle.shape[:2]
+    cx, cy = loc[0] + w // 2, loc[1] + h // 2
+    return {"score": score, "top_left": loc, "center": (cx, cy)}
