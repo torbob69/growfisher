@@ -4,6 +4,8 @@ import win32con
 import time
 import keyboard
 import ctypes
+import cv2
+import numpy as np
 
 from datetime import datetime as dt
 import pygetwindow as gw
@@ -78,6 +80,7 @@ def get_image(img_name : str):
     r, b = win32gui.ClientToScreen(HWND, bottom_right)
     img = ImageGrab.grab(bbox=(l, t, r, b), all_screens=True)
     img.save(f"{img_name}.png")
+    return img
 
 
 # get_image("testing")
