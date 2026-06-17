@@ -54,7 +54,7 @@ class Autofisher:
             click(*self.recycle_pos)
             time.sleep(2)
 
-            number = read_number(self.empty_fish_img)
+            number = read_number(self.number_bbox)
             for letter in (str(number) if number is not None else ""):
                 time.sleep(0.03)
                 press(letter)
