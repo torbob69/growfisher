@@ -94,15 +94,18 @@ class Autofisher:
                 time.sleep(0.1)
                 continue
 
-            if not match(self.water_img, "water.png"):
-                time.sleep(0.25)
-                if not match(self.water_img, "water.png"):
-                    self.log("water frozen → deto")
-                    time.sleep(self.delay())
-                    click(*self.deto_pos)
-                    time.sleep(self.delay())
-                    click(*self.water_pos)
-                    time.sleep(self.delay())
+            if match(self.nothing_img, "nothing.png"):
+                self.log("nothing on the line → recast")
+            elif not match(self.water_img, "water.png"):
+                time.sleep(0.15)
+                if match(self.water_img, "water.png"): continue
+                
+                self.log("water frozen → deto")
+                time.sleep(self.delay())
+                click(*self.deto_pos)
+                time.sleep(self.delay())
+                click(*self.water_pos)
+                time.sleep(self.delay())
             elif match(self.emptier_img, "emptier.png"):
                 self.log("inventory full → recycle")
                 self.recycle_inventory()

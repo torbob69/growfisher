@@ -39,6 +39,7 @@ CFG_ITEMS = [
     ('recycle_pos',    'Recycle button', 'pos',   None),
     ('water_img',      'Water region',   'region','water'),
     ('splash_img',     'Splash region',  'region','splash'),
+    ('nothing_img',    'Nothing notif',  'region','nothing'),
     ('emptier_img',    'Inv. emptier',   'region','emptier'),
     ('empty_fish_img', 'Empty fish',     'region','empty_fish'),
     ('number_bbox',    'Recycle number', 'region', None),
