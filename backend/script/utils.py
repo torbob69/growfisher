@@ -12,6 +12,8 @@ import pygetwindow as gw
 from PIL import ImageGrab, Image
 import win32ui
 from rapidocr_onnxruntime import RapidOCR
+from windows_capture import WindowsCapture, Frame, InternalCaptureControl
+import threading
 
 _ocr = RapidOCR()  # ponytail: one engine instance, models load once
 
@@ -83,14 +85,38 @@ def get_area():
     
     return top_left, bottom_right
 
+# ponytail: Windows.Graphics.Capture — no flash, works occluded, captures DirectX directly.
+_latest_frame = None
+_frame_lock = threading.Lock()
+_frame_ready = threading.Event()
+
+_cap = WindowsCapture(window_name=WIN_NAME)
+
+@_cap.event
+def on_frame_arrived(frame: Frame, capture_control: InternalCaptureControl):
+    global _latest_frame
+    with _frame_lock:
+        _latest_frame = frame.frame_buffer.copy()
+    _frame_ready.set()
+
+@_cap.event
+def on_closed():
+    pass
+
+_cap.start_free_threaded()
+
 def grab_window(bbox=None):
-    # ponytail: screen capture, not PrintWindow — PrintWindow flashes Growtopia (DirectX)
-    # and the re-render drifts from baseline → false fish/freeze. Growtopia must stay
-    # visible (uncovered); foreground focus not required.
-    cx0, cy0 = win32gui.ClientToScreen(HWND, (0, 0))
-    _, _, w, h = win32gui.GetClientRect(HWND)
-    img = ImageGrab.grab(bbox=(cx0, cy0, cx0 + w, cy0 + h), all_screens=True)
-    return img.crop(bbox) if bbox else img
+    _frame_ready.wait(timeout=2)  # ponytail: blocks once at startup until first frame arrives
+    with _frame_lock:
+        arr = _latest_frame
+    img = Image.fromarray(arr[..., :3][..., ::-1])  # BGRA → RGB
+    if bbox is None:
+        return img
+    # ponytail: WGC frame is window-relative (incl. title bar); bbox is client-relative — shift
+    wl, wt, _, _ = win32gui.GetWindowRect(HWND)
+    cx, cy = win32gui.ClientToScreen(HWND, (0, 0))
+    ox, oy = cx - wl, cy - wt
+    return img.crop((bbox[0]+ox, bbox[1]+oy, bbox[2]+ox, bbox[3]+oy))
 
 def get_image(img_name : str):
     top_left, bottom_right = get_area()
