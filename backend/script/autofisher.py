@@ -1,5 +1,5 @@
 from utils import get_mouse_pos, get_image, click, press, match, read_number
-import time, random, keyboard
+import time, random, keyboard, threading
 from threading import Event
 
 
@@ -28,6 +28,17 @@ class Autofisher:
 
     def log(self, msg):
         self.on_log(msg)
+
+    NO_CATCH_TIMEOUT = 60  # ponytail: restart if no catch within this many seconds
+
+    def _watchdog(self):
+        while not self.stop_event.is_set():
+            if time.time() - self.last_catch_time >= self.NO_CATCH_TIMEOUT:
+                self.on_log(f"watchdog: no catch in {self.NO_CATCH_TIMEOUT}s → restart")
+                self.needs_restart = True
+                self.stop_event.set()
+                return
+            time.sleep(1)
 
     def wait_while_paused(self):
         while self.is_paused() and not self.stop_event.is_set():
@@ -68,6 +79,9 @@ class Autofisher:
     def loop(self):
         self.log("autofisher running")
         self.fish = 0
+        self.needs_restart = False
+        self.last_catch_time = time.time()
+        threading.Thread(target=self._watchdog, daemon=True).start()
         self.cast()
         last_cast = time.time()
 
@@ -87,7 +101,7 @@ class Autofisher:
                 time.sleep(self.delay())
                 click(*self.water_pos)
                 time.sleep(self.delay())
-                
+
                 self.cast()
                 last_cast = time.time()
                 continue
@@ -102,8 +116,9 @@ class Autofisher:
             if not match(self.splash_img, "splash.png"):
                 click(*self.water_pos)
                 time.sleep(self.delay())
-                
+
                 self.fish += 1
+                self.last_catch_time = time.time()
                 self.log(f"caught (total: {self.fish})")
                 time.sleep(0.5)
                 self.cast()

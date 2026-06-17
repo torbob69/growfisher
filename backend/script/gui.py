@@ -373,7 +373,14 @@ class AutoFishGUI:
             self.log(f"Loop error: {e}")
             self.set_status("Error — stopped", '#f85149')
         finally:
-            self._on_loop_end()
+            # ponytail: watchdog sets stop_event AND needs_restart — restart only on the latter
+            if getattr(getattr(self, '_fisher', None), 'needs_restart', False):
+                self.log("auto-restart in 3s")
+                sleep(3)
+                self.stop_event.clear()
+                threading.Thread(target=self._fish_thread, daemon=True).start()
+            else:
+                self._on_loop_end()
 
     def _on_loop_end(self):
         self.running = False
