@@ -74,7 +74,7 @@ class Autofisher:
             
             click(*self.first_fish_pos)
 
-    CAST_COOLDOWN = 1.5  # ponytail: blanks detection during cast/catch animations
+    CAST_COOLDOWN = 2  # ponytail: blanks detection during cast/catch animations
 
     def loop(self):
         self.log("autofisher running")
@@ -95,37 +95,31 @@ class Autofisher:
                 continue
 
             if not match(self.water_img, "water.png"):
-                self.log("water frozen → deto")
-                time.sleep(self.delay())
-                click(*self.deto_pos)
-                time.sleep(self.delay())
-                click(*self.water_pos)
-                time.sleep(self.delay())
-
-                self.cast()
-                last_cast = time.time()
-                continue
-
-            if match(self.emptier_img, "emptier.png"):
+                time.sleep(0.25)
+                if not match(self.water_img, "water.png"):
+                    self.log("water frozen → deto")
+                    time.sleep(self.delay())
+                    click(*self.deto_pos)
+                    time.sleep(self.delay())
+                    click(*self.water_pos)
+                    time.sleep(self.delay())
+            elif match(self.emptier_img, "emptier.png"):
                 self.log("inventory full → recycle")
                 self.recycle_inventory()
-                self.cast()
-                last_cast = time.time()
-                continue
-
-            if not match(self.splash_img, "splash.png"):
+            elif not match(self.splash_img, "splash.png"):
+                time.sleep(self.delay())
                 click(*self.water_pos)
                 time.sleep(self.delay())
-
                 self.fish += 1
                 self.last_catch_time = time.time()
                 self.log(f"caught (total: {self.fish})")
                 time.sleep(0.5)
-                self.cast()
-                last_cast = time.time()
+            else:
+                time.sleep(0.1)
                 continue
 
-            time.sleep(0.1)
+            self.cast()
+            last_cast = time.time()
 
         self.log("autofisher stopped")
 
