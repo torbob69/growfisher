@@ -1,5 +1,5 @@
 from utils import get_mouse_pos, get_image, click, press, match, read_number
-import time, random, keyboard, threading
+import time, random
 from threading import Event
 
 
@@ -29,17 +29,6 @@ class Autofisher:
     def log(self, msg):
         self.on_log(msg)
 
-    NO_CATCH_TIMEOUT = 60  # ponytail: restart if no catch within this many seconds
-
-    def _watchdog(self):
-        while not self.stop_event.is_set():
-            if time.time() - self.last_catch_time >= self.NO_CATCH_TIMEOUT:
-                self.on_log(f"watchdog: no catch in {self.NO_CATCH_TIMEOUT}s → restart")
-                self.needs_restart = True
-                self.stop_event.set()
-                return
-            time.sleep(1)
-
     def wait_while_paused(self):
         while self.is_paused() and not self.stop_event.is_set():
             time.sleep(0.1)
@@ -48,7 +37,7 @@ class Autofisher:
         return random.uniform(0.1, 0.35)
 
     def stopped(self):
-        return self.stop_event.is_set() or keyboard.is_pressed('q')
+        return self.stop_event.is_set()
 
     def cast(self):
         time.sleep(self.delay())
@@ -65,7 +54,7 @@ class Autofisher:
             click(*self.recycle_pos)
             time.sleep(2)
 
-            number = read_number(self.number_bbox)
+            number = read_number(self.empty_fish_img)
             for letter in (str(number) if number is not None else ""):
                 time.sleep(0.03)
                 press(letter)
@@ -79,9 +68,6 @@ class Autofisher:
     def loop(self):
         self.log("autofisher running")
         self.fish = 0
-        self.needs_restart = False
-        self.last_catch_time = time.time()
-        threading.Thread(target=self._watchdog, daemon=True).start()
         self.cast()
         last_cast = time.time()
 
@@ -96,6 +82,7 @@ class Autofisher:
 
             if match(self.nothing_img, "nothing.png"):
                 self.log("nothing on the line → recast")
+                time.sleep(1.5)
             elif not match(self.water_img, "water.png"):
                 time.sleep(0.15)
                 if match(self.water_img, "water.png"): continue
@@ -106,7 +93,7 @@ class Autofisher:
                 time.sleep(self.delay())
                 click(*self.water_pos)
                 time.sleep(self.delay())
-            elif match(self.emptier_img, "emptier.png"):
+            elif match(self.emptier_img, "emptier.png", threshold=0.65):
                 self.log("inventory full → recycle")
                 self.recycle_inventory()
             elif not match(self.splash_img, "splash.png"):
@@ -114,7 +101,6 @@ class Autofisher:
                 click(*self.water_pos)
                 time.sleep(self.delay())
                 self.fish += 1
-                self.last_catch_time = time.time()
                 self.log(f"caught (total: {self.fish})")
                 time.sleep(0.5)
             else:
@@ -129,3 +115,14 @@ class Autofisher:
 
 if __name__ == "__main__":
     Autofisher().loop()
+
+
+# List of problems:
+'''
+- When the bot cant detect inv. emptier : it does nothing, just AFK. It should recast the bait again in order to show the inv. emptier notification.
+Suggested fix : 
+-Detect the animation splash right after casting a bait.
+If theres no splash, we continue to recast again until the splash animation appear.
+
+-Lower the threshold for image matching
+'''
