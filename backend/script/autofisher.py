@@ -80,7 +80,7 @@ class Autofisher:
                 time.sleep(0.1)
                 continue
 
-            if match(self.nothing_img, "nothing.png"):
+            if match(self.nothing_img, "nothing.png", threshold=0.5):
                 self.log("nothing on the line → recast")
                 time.sleep(1.5)
             elif not match(self.water_img, "water.png"):
@@ -96,7 +96,7 @@ class Autofisher:
             elif match(self.emptier_img, "emptier.png", threshold=0.65):
                 self.log("inventory full → recycle")
                 self.recycle_inventory()
-            elif not match(self.splash_img, "splash.png"):
+            elif not match(self.splash_img, "splash.png", threshold=0.6):
                 time.sleep(self.delay())
                 click(*self.water_pos)
                 time.sleep(self.delay())
