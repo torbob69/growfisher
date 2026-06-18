@@ -41,7 +41,7 @@ Growtopia's rules prohibit all forms of automation, including bots and macros, r
 
 ### Option 1 — Download the exe (easiest)
 
-Go to the [Releases](../../releases/latest) page and download `gui.exe`. No Python or Node required.
+Go to the [Releases](../../releases/latest) page and download `Growfisher.exe`. No Python or Node required.
 
 ### Option 2 — Build from source
 
