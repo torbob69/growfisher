@@ -23,16 +23,15 @@ Growfisher uses computer vision to watch the game the same way a human would —
 
 ---
 
-## Is this a macro recorder?
+## Features
 
-No. Macro recorders work by recording a fixed sequence of clicks and keystrokes at specific screen coordinates, then replaying them blindly. Growfisher does not record or replay anything. It reads the game state in real time through computer vision and makes decisions based on what it sees. It reacts to the game, it does not repeat a script. This is the same distinction as the difference between a bot and a recording.
+- Automatic cast, wait, and recycle fish when full spot
+- Detects splash, bite, and empty line events via template matching
+- Sends input directly to the Growtopia window, works minimized or behind other windows
+- No DLL injection, no packet manipulation, no game file modification
 
 ---
 
-## Features
+## Disclaimer
 
-- Automatic cast, wait, and reel cycle
-- Detects splash, bite, and empty line events via template matching
-- Sends input directly to the Growtopia window — works minimized or behind other windows
-- No DLL injection, no packet manipulation, no game file modification
-- Inventory auto-emptier when storage is full
+Growtopia's rules prohibit all forms of automation, including bots and macros, regardless of method. Using this tool is against Growtopia's Terms of Service and may result in a permanent account suspension. Use at your own risk.
