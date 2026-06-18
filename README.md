@@ -70,4 +70,5 @@ The exe will be at `dist\gui.exe`.
 
 ---
 
-## Setup
+## Setup and Usage Guide
+Will be announced later.
