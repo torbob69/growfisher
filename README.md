@@ -1,4 +1,4 @@
-<img width="2000" height="2000" alt="Desain tanpa judul (5)" src="https://github.com/user-attachments/assets/47c29fa4-9234-4704-beaa-cef4912e5ce3" />
+<img width="36" height="36" alt="growfisher" src="https://github.com/user-attachments/assets/47c29fa4-9234-4704-beaa-cef4912e5ce3" />
 
 
 # Growfisher
