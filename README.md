@@ -35,3 +35,39 @@ Growfisher uses computer vision to watch the game the same way a human would —
 ## Disclaimer
 
 Growtopia's rules prohibit all forms of automation, including bots and macros, regardless of method. Using this tool is against Growtopia's Terms of Service and may result in a permanent account suspension. Use at your own risk.
+
+## Installation
+
+### Option 1 — Download the exe (easiest)
+
+Go to the [Releases](../../releases/latest) page and download `gui.exe`. No Python or Node required.
+
+### Option 2 — Build from source
+
+**Requirements:** Python 3.11+, Node.js 18+
+
+```powershell
+# 1. Clone and enter the repo
+git clone https://github.com/YOUR_USERNAME/YOUR_REPO.git
+cd YOUR_REPO
+
+# 2. Create and activate a virtual environment
+python -m venv venv
+venv\Scripts\activate
+
+# 3. Install Python dependencies
+pip install -r requirements.txt
+
+# 4. Install Node dependencies
+cd ui && npm install && cd ..
+
+# 5. Build the exe
+cd ui && npm run build && cd ..
+pyinstaller gui.spec
+```
+
+The exe will be at `dist\gui.exe`.
+
+---
+
+## Setup
