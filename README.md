@@ -1,4 +1,5 @@
-<img width="3180" height="1344" alt="Gemini_Generated_Image_dnc22idnc22idnc2 (1)" src="https://github.com/user-attachments/assets/8b5b3c25-fe6d-41e0-ae95-a9b6bf7ca41c" />
+<img width="2000" height="2000" alt="Desain tanpa judul (5)" src="https://github.com/user-attachments/assets/47c29fa4-9234-4704-beaa-cef4912e5ce3" />
+
 
 # Growfisher
 ### Computer vision based Growtopia autofishing tool.
