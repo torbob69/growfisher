@@ -49,8 +49,7 @@ Go to the [Releases](../../releases/latest) page and download `gui.exe`. No Pyth
 
 ```powershell
 # 1. Clone and enter the repo
-git clone https://github.com/YOUR_USERNAME/YOUR_REPO.git
-cd YOUR_REPO
+git clone https://github.com/torbob69/autofisher
 
 # 2. Create and activate a virtual environment
 python -m venv venv
