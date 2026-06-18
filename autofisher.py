@@ -6,7 +6,7 @@ from threading import Event
 class Autofisher:
     def __init__(self, cfg: dict | None = None, stop_event: Event | None = None,
                  on_log=None, paused: callable = lambda: False):
-        # ponytail: cfg = pre-captured dict from GUI. None = old interactive flow.
+        # cfg = pre-captured dict from GUI. None = old interactive flow.
         self.stop_event = stop_event or Event()
         self.on_log = on_log or (lambda msg: print(msg))
         self.is_paused = paused
@@ -63,7 +63,7 @@ class Autofisher:
             
             click(*self.first_fish_pos)
 
-    CAST_COOLDOWN = 2  # ponytail: blanks detection during cast/catch animations
+    CAST_COOLDOWN = 2  # blanks detection during cast/catch animations
 
     def loop(self):
         self.log("autofisher running")

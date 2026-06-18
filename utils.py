@@ -15,9 +15,9 @@ from rapidocr_onnxruntime import RapidOCR
 from windows_capture import WindowsCapture, Frame, InternalCaptureControl
 import threading
 
-_ocr = RapidOCR()  # ponytail: one engine instance, models load once
+_ocr = RapidOCR()  # one engine instance, models load once
 
-# ponytail: per-monitor v2 — survives mixed-DPI monitors; fall back if API missing
+# per-monitor v2 — survives mixed-DPI monitors; fall back if API missing
 try:
     ctypes.windll.user32.SetProcessDpiAwarenessContext(-4)  # PER_MONITOR_AWARE_V2
 except (AttributeError, OSError):
@@ -60,7 +60,7 @@ def press(key):
     print(f"pressed {key!r} at {dt.now()}")
     
 def get_mouse_pos():
-    # ponytail: wait for a fresh 'x' press; suppress=True keeps the key out of the focused app
+    # wait for a fresh 'x' press; suppress=True keeps the key out of the focused app
     keyboard.wait('x', suppress=True)
     x, y = win32gui.ScreenToClient(HWND, win32gui.GetCursorPos())
     print(f"cursor pos: ({x}, {y})")
@@ -85,7 +85,7 @@ def get_area():
     
     return top_left, bottom_right
 
-# ponytail: Windows.Graphics.Capture — no flash, works occluded, captures DirectX directly.
+# Windows.Graphics.Capture — no flash, works occluded, captures DirectX directly.
 _latest_frame = None
 _frame_lock = threading.Lock()
 _frame_ready = threading.Event()
@@ -106,13 +106,13 @@ def on_closed():
 _cap.start_free_threaded()
 
 def grab_window(bbox=None):
-    _frame_ready.wait(timeout=2)  # ponytail: blocks once at startup until first frame arrives
+    _frame_ready.wait(timeout=2)  # blocks once at startup until first frame arrives
     with _frame_lock:
         arr = _latest_frame
     img = Image.fromarray(arr[..., :3][..., ::-1])  # BGRA → RGB
     if bbox is None:
         return img
-    # ponytail: WGC frame is window-relative (incl. title bar); bbox is client-relative — shift
+    # WGC frame is window-relative (incl. title bar); bbox is client-relative — shift
     wl, wt, _, _ = win32gui.GetWindowRect(HWND)
     cx, cy = win32gui.ClientToScreen(HWND, (0, 0))
     ox, oy = cx - wl, cy - wt
@@ -135,7 +135,7 @@ def match(area: tuple[int, int, int, int], ori_img_path: str, threshold: float =
     return score >= threshold
 
 def read_text(area: tuple[int, int, int, int], digits_only: bool = False):
-    # ponytail: rapidocr; upscale 2x for tiny game text
+    # rapidocr; upscale 2x for tiny game text
     img = grab_window(area)
     img = img.resize((img.width * 2, img.height * 2))
     result, _ = _ocr(np.array(img))
@@ -151,7 +151,7 @@ def read_number(area: tuple[int, int, int, int]) -> int | None:
     return int(s) if s else None
 
 def find_numbers(area=None, min_digit_ratio: float = 0.6):
-    # ponytail: OCR the area (or whole window), return each numeric region separately
+    # OCR the area (or whole window), return each numeric region separately
     img = grab_window(area) if area else grab_window()
     result, _ = _ocr(np.array(img))
     out = []
