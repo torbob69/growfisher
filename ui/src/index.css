@@ -1,0 +1,213 @@
+@import "tailwindcss";
+
+*, *::before, *::after { box-sizing: border-box; }
+
+:root {
+  /* Wood palette */
+  --gt-bg:         oklch(0.12 0.04 50);   /* outer body: deep dark wood */
+  --gt-surface:    oklch(0.22 0.06 52);   /* panel surface: mid wood */
+  --gt-surface-lo: oklch(0.16 0.05 50);   /* sunken surface: log/terminal bg */
+
+  /* Bevel */
+  --gt-bevel-hi:   oklch(0.42 0.09 58);   /* highlight edge: top-left */
+  --gt-bevel-lo:   oklch(0.06 0.02 40);   /* shadow edge: bottom-right */
+
+  /* Text — all ≥ L0.72 so they pass 4.5:1 on any gt-surface */
+  --gt-text:       oklch(0.93 0.04 75);   /* warm off-white: primary */
+  --gt-text-muted: oklch(0.72 0.08 65);   /* warm amber: labels, hints */
+
+  /* Semantic */
+  --gt-green:      oklch(0.62 0.18 145);
+  --gt-green-dk:   oklch(0.44 0.15 145);
+  --gt-red:        oklch(0.50 0.20 25);
+  --gt-red-dk:     oklch(0.35 0.17 25);
+  --gt-orange:     oklch(0.64 0.16 52);
+  --gt-orange-dk:  oklch(0.46 0.14 52);
+  --gt-blue:       oklch(0.56 0.18 248);
+  --gt-blue-dk:    oklch(0.40 0.16 248);
+  --gt-amber:      oklch(0.78 0.14 68);   /* accent: titles, values */
+
+  --gt-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+body {
+  margin: 0;
+  background: var(--gt-bg);
+  font-family: 'VT323', monospace;
+  color: var(--gt-text);
+}
+
+/* GT-themed scrollbar (WebView2 / Chromium) */
+::-webkit-scrollbar        { width: 6px; }
+::-webkit-scrollbar-track  { background: var(--gt-surface-lo); }
+::-webkit-scrollbar-thumb  { background: var(--gt-bevel-hi); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--gt-amber); }
+
+/* Firefox */
+* { scrollbar-width: thin; scrollbar-color: var(--gt-bevel-hi) var(--gt-surface-lo); }
+
+/* ── Panel ─────────────────────────────────────────────────── */
+.gt-panel {
+  background: var(--gt-surface);
+  border-radius: 3px;
+  border: 3px solid var(--gt-bevel-lo);
+  box-shadow:
+    inset 2px 2px 0 var(--gt-bevel-hi),
+    inset -2px -2px 0 rgba(0,0,0,0.55),
+    0 6px 18px rgba(0,0,0,0.65);
+  padding: 12px 14px;
+}
+
+.gt-panel-title {
+  font-size: 13px;
+  letter-spacing: 2.5px;
+  color: var(--gt-amber);
+  text-shadow: 0 1px 3px rgba(0,0,0,0.7);
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--gt-bevel-lo);
+  margin-bottom: 10px;
+}
+
+/* ── Sunken inset (log terminal) ────────────────────────────── */
+.gt-sunken {
+  background: var(--gt-surface-lo);
+  border-radius: 2px;
+  border: 2px solid var(--gt-bevel-lo);
+  box-shadow:
+    inset 2px 2px 0 rgba(0,0,0,0.5),
+    inset -2px -2px 0 rgba(255,180,80,0.06);
+}
+
+/* ── Buttons ─────────────────────────────────────────────────── */
+.gt-btn {
+  font-family: 'VT323', monospace;
+  font-size: 20px;
+  line-height: 1;
+  letter-spacing: 0.5px;
+  color: #fff;
+  border: none;
+  border-radius: 3px;
+  padding: 5px 14px 7px;
+  cursor: pointer;
+  text-shadow: 1px 2px 0 rgba(0,0,0,0.5);
+  position: relative;
+  top: 0;
+  user-select: none;
+  transition:
+    top   60ms var(--gt-ease),
+    box-shadow 60ms var(--gt-ease),
+    opacity 150ms;
+}
+
+.gt-btn:focus-visible {
+  outline: 2px solid var(--gt-amber);
+  outline-offset: 2px;
+}
+
+.gt-btn:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.gt-btn:not(:disabled):hover { filter: brightness(1.1); }
+
+.gt-btn:not(:disabled):active { top: 3px; }
+
+/* Variants */
+.gt-btn-green {
+  background: var(--gt-green);
+  box-shadow: 0 4px 0 var(--gt-green-dk), 0 5px 5px rgba(0,0,0,0.5);
+}
+.gt-btn-green:not(:disabled):active {
+  box-shadow: 0 1px 0 var(--gt-green-dk), 0 2px 2px rgba(0,0,0,0.4);
+}
+
+.gt-btn-red {
+  background: var(--gt-red);
+  box-shadow: 0 4px 0 var(--gt-red-dk), 0 5px 5px rgba(0,0,0,0.5);
+}
+.gt-btn-red:not(:disabled):active {
+  box-shadow: 0 1px 0 var(--gt-red-dk), 0 2px 2px rgba(0,0,0,0.4);
+}
+
+.gt-btn-orange {
+  background: var(--gt-orange);
+  box-shadow: 0 4px 0 var(--gt-orange-dk), 0 5px 5px rgba(0,0,0,0.5);
+}
+.gt-btn-orange:not(:disabled):active {
+  box-shadow: 0 1px 0 var(--gt-orange-dk), 0 2px 2px rgba(0,0,0,0.4);
+}
+
+.gt-btn-blue {
+  background: var(--gt-blue);
+  box-shadow: 0 3px 0 var(--gt-blue-dk), 0 4px 4px rgba(0,0,0,0.5);
+  font-size: 16px;
+  padding: 3px 12px 5px;
+}
+.gt-btn-blue:not(:disabled):active {
+  top: 2px;
+  box-shadow: 0 1px 0 var(--gt-blue-dk), 0 2px 2px rgba(0,0,0,0.4);
+}
+
+/* ── Config rows ─────────────────────────────────────────────── */
+.gt-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(0,0,0,0.25);
+}
+.gt-row:last-child { border-bottom: none; }
+
+/* ── Log lines ───────────────────────────────────────────────── */
+.gt-log-line {
+  font-size: 16px;
+  color: var(--gt-amber);
+  line-height: 1.35;
+}
+.gt-log-empty {
+  font-size: 16px;
+  color: var(--gt-text-muted);
+  opacity: 0.55;
+}
+
+/* ── Log overlay (mounted only when open) ────────────────────── */
+:root {
+  --z-overlay-bg: 10;
+  --z-overlay:    11;
+}
+
+.gt-overlay-bg {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.72);
+  z-index: var(--z-overlay-bg);
+  animation: gt-fade-in 180ms var(--gt-ease) forwards;
+}
+
+.gt-overlay {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  width: min(480px, 100vw);
+  z-index: var(--z-overlay);
+  transform: translateX(-50%);
+  animation: gt-slide-up 220ms var(--gt-ease) forwards;
+}
+
+@keyframes gt-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes gt-slide-up {
+  from { transform: translateX(-50%) translateY(100%); }
+  to   { transform: translateX(-50%) translateY(0); }
+}
+
+/* ── Reduced motion ──────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .gt-btn { transition: opacity 150ms; top: 0 !important; box-shadow: none !important; }
+  .gt-overlay-bg { animation: none; }
+  .gt-overlay { animation: none; transform: translateX(-50%) translateY(0); }
+}
