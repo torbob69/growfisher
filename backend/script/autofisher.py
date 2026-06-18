@@ -20,7 +20,7 @@ class Autofisher:
         for name in ("bait", "water", "deto", "first_fish", "recycle"):
             print(f"Point at {name} position and press X when done.")
             cfg[f"{name}_pos"] = get_mouse_pos()
-        for key, save in (("water_img", "water"), ("splash_img", "splash"),
+        for key, save in (("uranium_img", "uranium"), ("splash_img", "splash"),
                           ("emptier_img", "emptier"), ("empty_fish_img", "empty_fish"),
                           ("number_bbox", "number_bbox")):
             cfg[key] = get_image(save)
@@ -83,10 +83,10 @@ class Autofisher:
             if match(self.nothing_img, "nothing.png", threshold=0.5):
                 self.log("nothing on the line → recast")
                 time.sleep(1.5)
-            elif not match(self.water_img, "water.png"):
+            elif match(self.uranium_img, "uranium.png"):
                 time.sleep(0.15)
-                if match(self.water_img, "water.png"): continue
-                
+                if not match(self.uranium_img, "uranium.png"): continue
+
                 self.log("water frozen → deto")
                 time.sleep(self.delay())
                 click(*self.deto_pos)
@@ -117,12 +117,18 @@ if __name__ == "__main__":
     Autofisher().loop()
 
 
-# List of problems:
+# Future improvements:
 '''
-- When the bot cant detect inv. emptier : it does nothing, just AFK. It should recast the bait again in order to show the inv. emptier notification.
-Suggested fix : 
--Detect the animation splash right after casting a bait.
-If theres no splash, we continue to recast again until the splash animation appear.
+Global window image matching instead of picking area manually --> saves alot of time especially when we trynna reconfigure again :
+I wanna change water region to uranium region. So basicly we take a snapshot of a state where the water freezes and became a uranium block. We capture the moment when the water turns into uranium block.
+So we match the uranium region. If it match we do :
+self.log("water frozen → deto")
+                time.sleep(self.delay())
+                click(*self.deto_pos)
+                time.sleep(self.delay())
+                click(*self.water_pos)
+                time.sleep(self.delay())
 
--Lower the threshold for image matching
+
+Why : because the bot will be broken if i accidentally change the zoom.
 '''

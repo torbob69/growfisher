@@ -37,7 +37,7 @@ CFG_ITEMS = [
     ('deto_pos',       'Deto button',    'pos',   None),
     ('first_fish_pos', 'First fish',     'pos',   None),
     ('recycle_pos',    'Recycle button', 'pos',   None),
-    ('water_img',      'Water region',   'region','water'),
+    ('uranium_img',    'Uranium region', 'region','uranium'),
     ('splash_img',     'Splash region',  'region','splash'),
     ('nothing_img',    'Nothing notif',  'region','nothing'),
     ('emptier_img',    'Inv. emptier',   'region','emptier'),
@@ -412,8 +412,9 @@ class AutoFishGUI:
     # ------------------------------------------------------ run / quit ---
 
     def run(self):
-        key.add_hotkey('esc', self.stop_fishing)
-        key.add_hotkey('p',   self.toggle_pause)
+        # ponytail: bind on the Tk root — only fires when GUI has focus, no global hook
+        self.root.bind('<Escape>',     lambda e: self.stop_fishing())
+        self.root.bind('<KeyPress-p>', lambda e: self.toggle_pause())
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self.root.mainloop()
 
