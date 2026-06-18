@@ -38,6 +38,19 @@ Growfisher uses computer vision to watch the game the same way a human would —
 
 ---
 
+## System Requirements
+
+| | |
+|---|---|
+| **OS** | Windows 10 / 11 (64-bit) |
+| **Runtime** | [WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (pre-installed on Windows 11, auto-installs on Windows 10) |
+| **Game** | Growtopia (Windows client) |
+| **Hardware** | Any PC capable of running Growtopia |
+
+> Building from source additionally requires Python 3.11+ and Node.js 18+.
+
+---
+
 ## Installation
 
 ### Option 1 — Download (recommended)
