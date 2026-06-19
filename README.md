@@ -83,6 +83,10 @@ The exe will be at `dist\Growfisher.exe`.
 
 ---
 
+## Sneak Peak
+You can auto-recycle the fish when your current spot is full, while browsing on other tabs.
+<img width="800" height="500" alt="ezgif-23bb0368f667c674" src="https://github.com/user-attachments/assets/bd2a4c23-474f-4607-acfc-be585cdbc286" />
+
 ## Disclaimer
 
 Growtopia's rules prohibit all forms of automation, including bots and macros, regardless of method. Using this tool is against Growtopia's Terms of Service and may result in a permanent account suspension. **Use at your own risk.**
