@@ -11,6 +11,12 @@
 
 ---
 
+## Sneak Peak
+You can auto-recycle the fish when your current spot is full, while browsing on other tabs.
+<img width="800" height="500" alt="ezgif-23bb0368f667c674" src="https://github.com/user-attachments/assets/bd2a4c23-474f-4607-acfc-be585cdbc286" />
+
+---
+
 ## The problem with existing autofishing tools
 
 **Most macro-based tools lock your screen.** They simulate mouse clicks at fixed screen coordinates, which means you cannot open other tabs, watch YouTube, or do anything else while the bot runs. The moment you alt-tab or cover the window, it breaks.
@@ -82,10 +88,6 @@ pyinstaller gui.spec
 The exe will be at `dist\Growfisher.exe`.
 
 ---
-
-## Sneak Peak
-You can auto-recycle the fish when your current spot is full, while browsing on other tabs.
-<img width="800" height="500" alt="ezgif-23bb0368f667c674" src="https://github.com/user-attachments/assets/bd2a4c23-474f-4607-acfc-be585cdbc286" />
 
 ## Disclaimer
 
