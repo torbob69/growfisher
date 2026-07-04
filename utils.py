@@ -14,8 +14,10 @@ import win32ui
 from rapidocr_onnxruntime import RapidOCR
 from windows_capture import WindowsCapture, Frame, InternalCaptureControl
 import threading
+import re
 
 _ocr = RapidOCR()  # one engine instance, models load once
+_OCR_CONFUSABLES = str.maketrans("IlL|iO", "111100")
 
 # per-monitor v2 — survives mixed-DPI monitors; fall back if API missing
 try:
@@ -134,21 +136,32 @@ def match(area: tuple[int, int, int, int], ori_img_path: str, threshold: float =
     _, score, _, _ = cv2.minMaxLoc(res)
     return score >= threshold
 
-def read_text(area: tuple[int, int, int, int], digits_only: bool = False):
-    # rapidocr; upscale 2x for tiny game text
+def read_text(area: tuple[int, int, int, int], digits_only: bool = False, debug: bool = False):
+    # rapidocr; upscale + pad whitespace so detector sees isolated digits
     img = grab_window(area)
-    img = img.resize((img.width * 2, img.height * 2))
-    result, _ = _ocr(np.array(img))
+    img = img.resize((img.width * 4, img.height * 4))
+    # ponytail: pad on a white canvas so detector has margin around tiny "1"s
+    canvas = Image.new("RGB", (img.width + 80, img.height + 80), "white")
+    canvas.paste(img, (40, 40))
+    result, _ = _ocr(np.array(canvas))
+    if debug:
+        print(f"[ocr] area={area} raw={result}")
     if not result:
         return ""
     text = " ".join(r[1] for r in result)
     if digits_only:
+        # ponytail: map common OCR confusables for "1" before stripping
+        text = text.translate(str.maketrans("IlL|iO", "111100"))
         text = "".join(c for c in text if c.isdigit())
     return text
 
 def read_number(area: tuple[int, int, int, int]) -> int | None:
-    s = read_text(area, digits_only=True)
-    return int(s) if s else None
+    # ponytail: parse "you have N)" instead of grabbing any digit in the prompt
+    text = read_text(area)
+    m = re.search(r"have\s+([^)]+)", text, re.IGNORECASE)
+    s = (m.group(1) if m else text).translate(_OCR_CONFUSABLES)
+    digits = "".join(c for c in s if c.isdigit())
+    return int(digits) if digits else None
 
 def find_numbers(area=None, min_digit_ratio: float = 0.6):
     # OCR the area (or whole window), return each numeric region separately
@@ -156,7 +169,8 @@ def find_numbers(area=None, min_digit_ratio: float = 0.6):
     result, _ = _ocr(np.array(img))
     out = []
     for box, text, conf in result or []:
-        digits = "".join(c for c in text if c.isdigit())
+        norm = text.translate(str.maketrans("IlL|iO", "111100"))
+        digits = "".join(c for c in norm if c.isdigit())
         if digits and len(digits) / max(len(text), 1) >= min_digit_ratio:
             out.append({"value": int(digits), "raw": text, "box": box, "conf": conf})
     return out
