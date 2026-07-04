@@ -22,6 +22,7 @@ class Autofisher:
             cfg[f"{name}_pos"] = get_mouse_pos()
         for key, save in (("uranium_img", "uranium"), ("splash_img", "splash"),
                           ("emptier_img", "emptier"), ("empty_fish_img", "empty_fish"),
+                          ("nothing_img", "nothing"),
                           ("number_bbox", "number_bbox")):
             cfg[key] = get_image(save)
         return cfg
