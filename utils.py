@@ -14,8 +14,10 @@ import win32ui
 from rapidocr_onnxruntime import RapidOCR
 from windows_capture import WindowsCapture, Frame, InternalCaptureControl
 import threading
+import re
 
 _ocr = RapidOCR()  # one engine instance, models load once
+_OCR_CONFUSABLES = str.maketrans("IlL|iO", "111100")
 
 # per-monitor v2 — survives mixed-DPI monitors; fall back if API missing
 try:
@@ -38,7 +40,7 @@ def find_hwnd():
     return hits[0] if hits else 0
 
 HWND = find_hwnd()
-print("HWND =", HWND, "title =", win32gui.GetWindowText(HWND) if HWND else "(not found)")
+# print("HWND =", HWND, "title =", win32gui.GetWindowText(HWND) if HWND else "(not found)")
 
 
 
@@ -57,13 +59,13 @@ def press(key):
     win32gui.PostMessage(HWND, win32con.WM_KEYDOWN, vk, down)
     time.sleep(0.05)
     win32gui.PostMessage(HWND, win32con.WM_KEYUP,   vk, up)
-    print(f"pressed {key!r} at {dt.now()}")
+    # print(f"pressed {key!r} at {dt.now()}")
     
 def get_mouse_pos():
     # wait for a fresh 'x' press; suppress=True keeps the key out of the focused app
     keyboard.wait('x', suppress=True)
     x, y = win32gui.ScreenToClient(HWND, win32gui.GetCursorPos())
-    print(f"cursor pos: ({x}, {y})")
+    # print(f"cursor pos: ({x}, {y})")
     return (x, y)
 
 def chat(text : str = "Hi welcome to torbob69's autofisher."):
@@ -78,9 +80,9 @@ def chat(text : str = "Hi welcome to torbob69's autofisher."):
     click(*pos)
     
 def get_area():
-    print("Put your mouse at the top left of the area box")
+    # print("Put your mouse at the top left of the area box")
     top_left = get_mouse_pos()
-    print("Put your mouse at the bottom right of the area box")
+    # print("Put your mouse at the bottom right of the area box")
     bottom_right = get_mouse_pos()
     
     return top_left, bottom_right
@@ -113,10 +115,13 @@ def grab_window(bbox=None):
     if bbox is None:
         return img
     # WGC frame is window-relative (incl. title bar); bbox is client-relative — shift
-    wl, wt, _, _ = win32gui.GetWindowRect(HWND)
+    wl, wt, wr, wb = win32gui.GetWindowRect(HWND)
     cx, cy = win32gui.ClientToScreen(HWND, (0, 0))
     ox, oy = cx - wl, cy - wt
-    return img.crop((bbox[0]+ox, bbox[1]+oy, bbox[2]+ox, bbox[3]+oy))
+    # DPI: frame is physical pixels, bbox is logical if process isn't per-monitor aware
+    scale = arr.shape[1] / max(wr - wl, 1)
+    return img.crop((round((bbox[0]+ox) * scale), round((bbox[1]+oy) * scale),
+                     round((bbox[2]+ox) * scale), round((bbox[3]+oy) * scale)))
 
 def get_image(img_name : str):
     top_left, bottom_right = get_area()
@@ -134,21 +139,30 @@ def match(area: tuple[int, int, int, int], ori_img_path: str, threshold: float =
     _, score, _, _ = cv2.minMaxLoc(res)
     return score >= threshold
 
-def read_text(area: tuple[int, int, int, int], digits_only: bool = False):
-    # rapidocr; upscale 2x for tiny game text
-    img = grab_window(area)
-    img = img.resize((img.width * 2, img.height * 2))
-    result, _ = _ocr(np.array(img))
+def read_text(digits_only : bool = False):
+    img = grab_window(None)
+    img = img.resize((img.width // 2, img.height // 2))    
+    canvas = Image.new("RGB", (img.width + 80, img.height + 80), "white")
+    canvas.paste(img, (40, 40))
+    t = time.perf_counter() 
+    result, _ = _ocr(np.array(canvas))
+    # print(f"ocr: {time.perf_counter()-t:.3f}s  ({canvas.width}x{canvas.height})")
     if not result:
         return ""
     text = " ".join(r[1] for r in result)
     if digits_only:
+        # map common OCR confusables for "1" before stripping
+        text = text.translate(str.maketrans("IlL|iO", "111100"))
         text = "".join(c for c in text if c.isdigit())
     return text
 
-def read_number(area: tuple[int, int, int, int]) -> int | None:
-    s = read_text(area, digits_only=True)
-    return int(s) if s else None
+def read_number() -> int | None:
+    # parse "you have N)" instead of grabbing any digit in the prompt
+    text = read_text(False)   # need the word "have" in text — don't strip to digits first
+    m = re.search(r"have\s+([^)]+)", text, re.IGNORECASE)
+    s = (m.group(1) if m else text).translate(_OCR_CONFUSABLES)
+    digits = "".join(c for c in s if c.isdigit())
+    return int(digits) if digits else None
 
 def find_numbers(area=None, min_digit_ratio: float = 0.6):
     # OCR the area (or whole window), return each numeric region separately
@@ -156,7 +170,8 @@ def find_numbers(area=None, min_digit_ratio: float = 0.6):
     result, _ = _ocr(np.array(img))
     out = []
     for box, text, conf in result or []:
-        digits = "".join(c for c in text if c.isdigit())
+        norm = text.translate(str.maketrans("IlL|iO", "111100"))
+        digits = "".join(c for c in norm if c.isdigit())
         if digits and len(digits) / max(len(text), 1) >= min_digit_ratio:
             out.append({"value": int(digits), "raw": text, "box": box, "conf": conf})
     return out
