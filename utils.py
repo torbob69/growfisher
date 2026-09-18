@@ -111,14 +111,15 @@ def grab_window(bbox=None):
     _frame_ready.wait(timeout=2)  # blocks once at startup until first frame arrives
     with _frame_lock:
         arr = _latest_frame
-    img = Image.fromarray(arr[..., :3][..., ::-1])  # BGRA → RGB
     if bbox is None:
-        return img
+        return Image.fromarray(arr[..., :3][..., ::-1])  # BGRA → RGB
     # WGC frame is window-relative (incl. title bar); bbox is client-relative — shift
     wl, wt, _, _ = win32gui.GetWindowRect(HWND)
     cx, cy = win32gui.ClientToScreen(HWND, (0, 0))
     ox, oy = cx - wl, cy - wt
-    return img.crop((bbox[0]+ox, bbox[1]+oy, bbox[2]+ox, bbox[3]+oy))
+    x1, y1 = max(0, bbox[0]+ox), max(0, bbox[1]+oy)
+    # ponytail: crop the array first — converting the whole ~6MB frame per check was the cost
+    return Image.fromarray(arr[y1:bbox[3]+oy, x1:bbox[2]+ox, :3][..., ::-1])
 
 def get_image(img_name : str):
     top_left, bottom_right = get_area()
@@ -132,9 +133,23 @@ def match(area: tuple[int, int, int, int], ori_img_path: str, threshold: float =
     hay_pil = grab_window(area)
     hay = cv2.cvtColor(np.array(hay_pil), cv2.COLOR_RGB2BGR)
     needle = cv2.imread(ori_img_path)
+    # ponytail: stale png vs re-picked region -> matchTemplate asserts; say why
+    if needle.shape[0] > hay.shape[0] or needle.shape[1] > hay.shape[1]:
+        raise ValueError(f"{ori_img_path} is {needle.shape[1]}x{needle.shape[0]} but region "
+                         f"is {hay.shape[1]}x{hay.shape[0]} — recapture that region")
     res = cv2.matchTemplate(hay, needle, cv2.TM_CCOEFF_NORMED)
     _, score, _, _ = cv2.minMaxLoc(res)
     return score >= threshold
+
+def diff(area: tuple[int, int, int, int], ori_img_path: str) -> float:
+    # ponytail: mean abs pixel change (0-255) vs the saved png. TM_CCOEFF_NORMED is
+    # mean/contrast-normalised, so a splash over water can still score ~1.0 — this can't.
+    hay = cv2.cvtColor(np.array(grab_window(area)), cv2.COLOR_RGB2BGR)
+    needle = cv2.imread(ori_img_path)
+    if needle.shape != hay.shape:
+        raise ValueError(f"{ori_img_path} is {needle.shape[1]}x{needle.shape[0]} but region "
+                         f"is {hay.shape[1]}x{hay.shape[0]} — recapture that region")
+    return float(np.abs(hay.astype(np.int16) - needle.astype(np.int16)).mean())
 
 def read_text(area: tuple[int, int, int, int], digits_only: bool = False, debug: bool = False):
     # rapidocr; upscale + pad whitespace so detector sees isolated digits

@@ -1,4 +1,4 @@
-from utils import get_mouse_pos, get_image, click, press, match, read_number
+from utils import get_mouse_pos, get_image, click, press, match, diff, read_number
 import time, random
 from threading import Event
 
@@ -10,6 +10,7 @@ class Autofisher:
         self.stop_event = stop_event or Event()
         self.on_log = on_log or (lambda msg: print(msg))
         self.is_paused = paused
+        self.deto = True  # off = skip uranium check entirely (no deto_pos/uranium_img needed)
         if cfg is None:
             cfg = self._interactive_calibrate()
         for k, v in cfg.items():
@@ -65,12 +66,14 @@ class Autofisher:
             click(*self.first_fish_pos)
 
     CAST_COOLDOWN = 2  # blanks detection during cast/catch animations
+    SPLASH_DIFF = 25   # mean pixel change vs splash.png that counts as a bite — tune me
 
     def loop(self):
         self.log("autofisher running")
         self.fish = 0
         self.cast()
         last_cast = time.time()
+        peak = 0.0  # highest splash diff seen since the cast — your tuning number
 
         while not self.stopped():
             self.wait_while_paused()
@@ -81,10 +84,14 @@ class Autofisher:
                 time.sleep(0.1)
                 continue
 
+            d = diff(self.splash_img, "splash.png")
+            peak = max(peak, d)
+
             if match(self.nothing_img, "nothing.png", threshold=0.5):
-                self.log("nothing on the line → recast")
+                self.log(f"nothing on the line → recast (splash peak {peak:.0f} "
+                         f"vs SPLASH_DIFF {self.SPLASH_DIFF})")
                 time.sleep(1.5)
-            elif match(self.uranium_img, "uranium.png"):
+            elif self.deto and match(self.uranium_img, "uranium.png"):
                 time.sleep(0.15)
                 if not match(self.uranium_img, "uranium.png"): continue
 
@@ -97,19 +104,20 @@ class Autofisher:
             elif match(self.emptier_img, "emptier.png", threshold=0.65):
                 self.log("inventory full → recycle")
                 self.recycle_inventory()
-            elif not match(self.splash_img, "splash.png", threshold=0.5):
+            elif d > self.SPLASH_DIFF:
                 time.sleep(self.delay())
                 click(*self.water_pos)
                 time.sleep(self.delay())
                 self.fish += 1
-                self.log(f"caught (total: {self.fish})")
+                self.log(f"caught, diff {d:.0f} (total: {self.fish})")
                 time.sleep(0.5)
             else:
-                time.sleep(0.1)
+                time.sleep(0.05)
                 continue
 
             self.cast()
             last_cast = time.time()
+            peak = 0.0
 
         self.log("autofisher stopped")
 

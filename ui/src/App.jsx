@@ -4,10 +4,10 @@ import './index.css'
 const CFG_ITEMS = [
   { key: 'bait_pos',       label: 'Bait button',    kind: 'pos'    },
   { key: 'water_pos',      label: 'Water button',   kind: 'pos'    },
-  { key: 'deto_pos',       label: 'Deto button',    kind: 'pos'    },
+  { key: 'deto_pos',       label: 'Deto button',    kind: 'pos',    deto: true },
   { key: 'first_fish_pos', label: 'First fish',     kind: 'pos'    },
   { key: 'recycle_pos',    label: 'Recycle button', kind: 'pos'    },
-  { key: 'uranium_img',    label: 'Uranium region', kind: 'region' },
+  { key: 'uranium_img',    label: 'Uranium region', kind: 'region', deto: true },
   { key: 'splash_img',     label: 'Splash region',  kind: 'region' },
   { key: 'nothing_img',    label: 'Nothing notif',  kind: 'region' },
   { key: 'emptier_img',    label: 'Inv. emptier',   kind: 'region' },
@@ -25,6 +25,7 @@ export default function App() {
   const [running,    setRunning]    = useState(false)
   const [capturing,  setCapturing]  = useState(false)
   const [paused,     setPaused]     = useState(false)
+  const [deto,       setDeto]       = useState(true)
   const [fish,       setFish]       = useState(0)
   const [elapsed,    setElapsed]    = useState('00:00:00')
   const [logOpen,    setLogOpen]    = useState(false)
@@ -44,6 +45,7 @@ export default function App() {
         setRunning(ev.running)
         setCapturing(ev.capturing)
         setPaused(ev.paused)
+        setDeto(ev.deto)
         setFish(ev.fish)
         setElapsed(ev.elapsed)
       }
@@ -58,7 +60,8 @@ export default function App() {
   const openLog  = () => { setLogOpen(true);  setUnreadLogs(0) }
   const closeLog = () => { setLogOpen(false); setUnreadLogs(0) }
 
-  const allSet = CFG_ITEMS.every(i => cfg[i.key]?.ok)
+  const items  = CFG_ITEMS.filter(i => deto || !i.deto)
+  const allSet = items.every(i => cfg[i.key]?.ok)
   const busy   = running || capturing
 
   return (
@@ -180,12 +183,22 @@ export default function App() {
             <div style={{ fontFamily: "'VT323', monospace", fontSize: '13px', letterSpacing: '2.5px', color: 'var(--gt-amber)', textShadow: '0 1px 3px rgba(0,0,0,0.7)' }}>
               &gt;&gt; CONFIGURATION
             </div>
-            <button disabled={busy} onClick={() => api()?.start_setup_all()} className="gt-btn gt-btn-blue">
-              Setup All
-            </button>
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <button
+                disabled={busy}
+                onClick={() => api()?.set_deto(!deto)}
+                aria-pressed={deto}
+                className={`gt-btn ${deto ? 'gt-btn-green' : 'gt-btn-red'}`}
+              >
+                Deto: {deto ? 'ON' : 'OFF'}
+              </button>
+              <button disabled={busy} onClick={() => api()?.start_setup_all()} className="gt-btn gt-btn-blue">
+                Setup All
+              </button>
+            </div>
           </div>
           <div style={{ borderTop: '2px solid var(--gt-bevel-lo)', paddingTop: '4px' }}>
-            {CFG_ITEMS.map(({ key, label, kind }) => (
+            {items.map(({ key, label, kind }) => (
               <div key={key} className="gt-row">
                 <span style={{ fontFamily: "'VT323', monospace", fontSize: '17px', color: 'var(--gt-text-muted)', width: '130px', flexShrink: 0 }}>
                   {label}

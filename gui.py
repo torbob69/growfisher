@@ -11,11 +11,13 @@ for fn in [
 
 import json, os, threading, time, keyboard as key
 import win32gui, win32con, webview
+from PIL import Image
 from threading import Event
 from utils import HWND, grab_window
 from autofisher import Autofisher
 
 CALIB_FILE = "calib.json"
+DETO_KEYS = ('deto_pos', 'uranium_img')  # only needed when deto mode is on
 
 CFG_ITEMS = [
     ('bait_pos',       'Bait button',    'pos',    None),
@@ -40,6 +42,7 @@ def _fmt(val, kind):
 class Api:
     def __init__(self):
         self.cfg       = {k: None for k, *_ in CFG_ITEMS}
+        self.deto      = True
         self.capturing = False
         self.running   = False
         self.pause     = False
@@ -71,9 +74,24 @@ class Api:
             'running':   self.running,
             'capturing': self.capturing,
             'paused':    self.pause,
+            'deto':      self.deto,
             'fish':      getattr(self._fisher, 'fish', 0),
             'elapsed':   elapsed,
         })
+
+    def set_deto(self, on):
+        if self.running: return
+        self.deto = bool(on)
+        self._save_calib()
+        self._log(f"deto mode {'on' if self.deto else 'off'}")
+        self._check_ready()
+        self._state()
+
+    def _required(self):
+        return [k for k in self.cfg if self.deto or k not in DETO_KEYS]
+
+    def _ready(self):
+        return all(self.cfg[k] is not None for k in self._required())
 
     # --------------------------------------------------------- capture ----
 
@@ -130,6 +148,7 @@ class Api:
         try:
             self._status("Setting up...", '#d29922')
             for k, label, kind, save in CFG_ITEMS:
+                if not self.deto and k in DETO_KEYS: continue
                 self._push({'type': 'cfg_update', 'key': k, 'text': 'Capturing...', 'ok': False})
                 if kind == 'pos':
                     self._instr(f"Move to {label.upper()}, then hold CTRL")
@@ -158,7 +177,7 @@ class Api:
     # --------------------------------------------------------- fishing ----
 
     def start_fishing(self):
-        if self.running or not all(v is not None for v in self.cfg.values()): return
+        if self.running or not self._ready(): return
         self.running = True
         self.pause = False
         self.stop_event.clear()
@@ -170,7 +189,7 @@ class Api:
 
     def _fish_thread(self):
         try:
-            self._fisher = Autofisher(cfg=self.cfg, stop_event=self.stop_event,
+            self._fisher = Autofisher(cfg={**self.cfg, 'deto': self.deto}, stop_event=self.stop_event,
                                       on_log=self._log, paused=lambda: self.pause)
             self._fisher.loop()
         except Exception as e:
@@ -204,13 +223,13 @@ class Api:
     # --------------------------------------------------------- helpers ----
 
     def _check_ready(self):
-        if all(v is not None for v in self.cfg.values()):
+        if self._ready():
             self._status("Ready — press Start")
             self._instr("All set. Press Start.")
 
     def _save_calib(self):
         with open(CALIB_FILE, 'w') as f:
-            json.dump(self.cfg, f, indent=2)
+            json.dump({**self.cfg, 'deto': self.deto}, f, indent=2)
 
     def load_calibration(self):
         if not os.path.exists(CALIB_FILE): return
@@ -218,18 +237,26 @@ class Api:
             data = json.load(open(CALIB_FILE))
         except Exception as e:
             self._log(f"calib load failed: {e}"); return
+        self.deto = bool(data.get('deto', True))
         loaded = 0
         for k, label, kind, save in CFG_ITEMS:
             val = data.get(k)
             if val is None: continue
             val = tuple(val)
-            if kind == 'region' and save and not os.path.exists(f"{save}.png"):
-                self._log(f"{label}: missing {save}.png — recapture"); continue
+            if kind == 'region' and save:
+                if not os.path.exists(f"{save}.png"):
+                    self._log(f"{label}: missing {save}.png — recapture"); continue
+                # ponytail: bbox re-picked without resaving png -> matchTemplate blows up mid-loop
+                w, h = Image.open(f"{save}.png").size
+                if (w, h) != (val[2] - val[0], val[3] - val[1]):
+                    self._log(f"{label}: {save}.png is {w}x{h} but region is "
+                              f"{val[2]-val[0]}x{val[3]-val[1]} — recapture"); continue
             self.cfg[k] = val
             self._push({'type': 'cfg_update', 'key': k, 'text': _fmt(val, kind), 'ok': True})
             loaded += 1
         if loaded:
-            self._log(f"loaded {loaded}/{len(CFG_ITEMS)} from {CALIB_FILE}")
+            self._log(f"loaded {loaded}/{len(self._required())} from {CALIB_FILE}")
+        self._state()
         self._check_ready()
 
 
