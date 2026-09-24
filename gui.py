@@ -18,6 +18,11 @@ from autofisher import Autofisher
 
 CALIB_FILE = "calib.json"
 DETO_KEYS = ('deto_pos', 'uranium_img')  # only needed when deto mode is on
+THRESHOLD_DEFAULTS = {  # mirrors Autofisher's own defaults (autofisher.py)
+    'splash_diff':       15,
+    'nothing_threshold': 0.5,
+    'emptier_threshold': 0.35,
+}
 
 CFG_ITEMS = [
     ('bait_pos',       'Bait button',    'pos',    None),
@@ -43,6 +48,8 @@ class Api:
     def __init__(self):
         self.cfg       = {k: None for k, *_ in CFG_ITEMS}
         self.deto      = True
+        self.cast_delay = None  # None = random 0.1-0.35s (Autofisher default)
+        self.thresholds = dict(THRESHOLD_DEFAULTS)
         self.capturing = False
         self.running   = False
         self.pause     = False
@@ -86,6 +93,24 @@ class Api:
         self._log(f"deto mode {'on' if self.deto else 'off'}")
         self._check_ready()
         self._state()
+
+    def set_cast_delay(self, val):
+        if self.running: return
+        try:
+            self.cast_delay = float(val) if val not in (None, '') else None
+        except (TypeError, ValueError):
+            self.cast_delay = None
+        self._save_calib()
+        self._push({'type': 'cast_delay', 'value': self.cast_delay})
+
+    def set_threshold(self, key, val):
+        if self.running or key not in THRESHOLD_DEFAULTS: return
+        try:
+            self.thresholds[key] = float(val) if val not in (None, '') else THRESHOLD_DEFAULTS[key]
+        except (TypeError, ValueError):
+            self.thresholds[key] = THRESHOLD_DEFAULTS[key]
+        self._save_calib()
+        self._push({'type': 'threshold', 'key': key, 'value': self.thresholds[key]})
 
     def _required(self):
         return [k for k in self.cfg if self.deto or k not in DETO_KEYS]
@@ -189,7 +214,9 @@ class Api:
 
     def _fish_thread(self):
         try:
-            self._fisher = Autofisher(cfg={**self.cfg, 'deto': self.deto}, stop_event=self.stop_event,
+            self._fisher = Autofisher(cfg={**self.cfg, 'deto': self.deto, 'cast_delay': self.cast_delay,
+                                            **self.thresholds},
+                                      stop_event=self.stop_event,
                                       on_log=self._log, paused=lambda: self.pause)
             self._fisher.loop()
         except Exception as e:
@@ -229,7 +256,8 @@ class Api:
 
     def _save_calib(self):
         with open(CALIB_FILE, 'w') as f:
-            json.dump({**self.cfg, 'deto': self.deto}, f, indent=2)
+            json.dump({**self.cfg, 'deto': self.deto, 'cast_delay': self.cast_delay,
+                       **self.thresholds}, f, indent=2)
 
     def load_calibration(self):
         if not os.path.exists(CALIB_FILE): return
@@ -238,6 +266,11 @@ class Api:
         except Exception as e:
             self._log(f"calib load failed: {e}"); return
         self.deto = bool(data.get('deto', True))
+        self.cast_delay = data.get('cast_delay')
+        self._push({'type': 'cast_delay', 'value': self.cast_delay})
+        for key, default in THRESHOLD_DEFAULTS.items():
+            self.thresholds[key] = data.get(key, default)
+            self._push({'type': 'threshold', 'key': key, 'value': self.thresholds[key]})
         loaded = 0
         for k, label, kind, save in CFG_ITEMS:
             val = data.get(k)
@@ -246,11 +279,13 @@ class Api:
             if kind == 'region' and save:
                 if not os.path.exists(f"{save}.png"):
                     self._log(f"{label}: missing {save}.png — recapture"); continue
-                # ponytail: bbox re-picked without resaving png -> matchTemplate blows up mid-loop
+                # ponytail: compare against grab_window's own rescaled crop (not raw bbox
+                # span) — grab_window resizes for DWM DPI-stretch, so raw span never matches
                 w, h = Image.open(f"{save}.png").size
-                if (w, h) != (val[2] - val[0], val[3] - val[1]):
-                    self._log(f"{label}: {save}.png is {w}x{h} but region is "
-                              f"{val[2]-val[0]}x{val[3]-val[1]} — recapture"); continue
+                cw, ch = grab_window(val).size
+                if (cw, ch) != (w, h):
+                    self._log(f"{label}: {save}.png is {w}x{h} but region now crops to "
+                              f"{cw}x{ch} — recapture"); continue
             self.cfg[k] = val
             self._push({'type': 'cfg_update', 'key': k, 'text': _fmt(val, kind), 'ok': True})
             loaded += 1

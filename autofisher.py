@@ -11,6 +11,10 @@ class Autofisher:
         self.on_log = on_log or (lambda msg: print(msg))
         self.is_paused = paused
         self.deto = True  # off = skip uranium check entirely (no deto_pos/uranium_img needed)
+        self.cast_delay = None  # None = random 0.1-0.35s; else fixed seconds between bait/water clicks
+        self.splash_diff = 15          # mean pixel change vs splash.png that counts as a bite
+        self.nothing_threshold = 0.5   # match score for nothing.png
+        self.emptier_threshold = 0.35  # match score for emptier.png
         if cfg is None:
             cfg = self._interactive_calibrate()
         for k, v in cfg.items():
@@ -42,9 +46,10 @@ class Autofisher:
         return self.stop_event.is_set()
 
     def cast(self):
-        time.sleep(self.delay())
+        d = self.cast_delay if self.cast_delay is not None else self.delay()
+        time.sleep(d)
         click(*self.bait_pos)
-        time.sleep(self.delay())
+        time.sleep(d)
         click(*self.water_pos)
 
     def recycle_inventory(self):
@@ -66,7 +71,6 @@ class Autofisher:
             click(*self.first_fish_pos)
 
     CAST_COOLDOWN = 2  # blanks detection during cast/catch animations
-    SPLASH_DIFF = 25   # mean pixel change vs splash.png that counts as a bite — tune me
 
     def loop(self):
         self.log("autofisher running")
@@ -87,9 +91,9 @@ class Autofisher:
             d = diff(self.splash_img, "splash.png")
             peak = max(peak, d)
 
-            if match(self.nothing_img, "nothing.png", threshold=0.5):
+            if match(self.nothing_img, "nothing.png", threshold=self.nothing_threshold):
                 self.log(f"nothing on the line → recast (splash peak {peak:.0f} "
-                         f"vs SPLASH_DIFF {self.SPLASH_DIFF})")
+                         f"vs splash_diff {self.splash_diff})")
                 time.sleep(1.5)
             elif self.deto and match(self.uranium_img, "uranium.png"):
                 time.sleep(0.15)
@@ -101,10 +105,10 @@ class Autofisher:
                 time.sleep(self.delay())
                 click(*self.water_pos)
                 time.sleep(self.delay())
-            elif match(self.emptier_img, "emptier.png", threshold=0.65):
+            elif match(self.emptier_img, "emptier.png", threshold=self.emptier_threshold):
                 self.log("inventory full → recycle")
                 self.recycle_inventory()
-            elif d > self.SPLASH_DIFF:
+            elif d > self.splash_diff:
                 time.sleep(self.delay())
                 click(*self.water_pos)
                 time.sleep(self.delay())

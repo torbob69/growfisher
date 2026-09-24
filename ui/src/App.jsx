@@ -8,12 +8,14 @@ const CFG_ITEMS = [
   { key: 'first_fish_pos', label: 'First fish',     kind: 'pos'    },
   { key: 'recycle_pos',    label: 'Recycle button', kind: 'pos'    },
   { key: 'uranium_img',    label: 'Uranium region', kind: 'region', deto: true },
-  { key: 'splash_img',     label: 'Splash region',  kind: 'region' },
-  { key: 'nothing_img',    label: 'Nothing notif',  kind: 'region' },
-  { key: 'emptier_img',    label: 'Inv. emptier',   kind: 'region' },
+  { key: 'splash_img',     label: 'Splash region',  kind: 'region', threshold: 'splash_diff' },
+  { key: 'nothing_img',    label: 'Nothing notif',  kind: 'region', threshold: 'nothing_threshold' },
+  { key: 'emptier_img',    label: 'Inv. emptier',   kind: 'region', threshold: 'emptier_threshold' },
   { key: 'empty_fish_img', label: 'Empty fish',     kind: 'region' },
   { key: 'number_bbox',    label: 'Recycle number', kind: 'region' },
 ]
+
+const THRESHOLD_DEFAULTS = { splash_diff: 15, nothing_threshold: 0.5, emptier_threshold: 0.35 }
 
 const api = () => window.pywebview?.api
 
@@ -26,6 +28,8 @@ export default function App() {
   const [capturing,  setCapturing]  = useState(false)
   const [paused,     setPaused]     = useState(false)
   const [deto,       setDeto]       = useState(true)
+  const [castDelay,  setCastDelay]  = useState('')
+  const [thresholds, setThresholds] = useState({})
   const [fish,       setFish]       = useState(0)
   const [elapsed,    setElapsed]    = useState('00:00:00')
   const [logOpen,    setLogOpen]    = useState(false)
@@ -41,6 +45,8 @@ export default function App() {
         setUnreadLogs(u => u + 1)
       }
       if (ev.type === 'cfg_update') setCfg(c => ({ ...c, [ev.key]: { text: ev.text, ok: ev.ok } }))
+      if (ev.type === 'cast_delay') setCastDelay(ev.value ?? '')
+      if (ev.type === 'threshold')  setThresholds(t => ({ ...t, [ev.key]: ev.value }))
       if (ev.type === 'state') {
         setRunning(ev.running)
         setCapturing(ev.capturing)
@@ -198,7 +204,7 @@ export default function App() {
             </div>
           </div>
           <div style={{ borderTop: '2px solid var(--gt-bevel-lo)', paddingTop: '4px' }}>
-            {items.map(({ key, label, kind }) => (
+            {items.map(({ key, label, kind, threshold }) => (
               <div key={key} className="gt-row">
                 <span style={{ fontFamily: "'VT323', monospace", fontSize: '17px', color: 'var(--gt-text-muted)', width: '130px', flexShrink: 0 }}>
                   {label}
@@ -216,11 +222,60 @@ export default function App() {
                 }}>
                   {cfg[key]?.text ?? '-- not set --'}
                 </span>
+                {threshold && (
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    disabled={busy}
+                    value={thresholds[threshold] ?? ''}
+                    placeholder={String(THRESHOLD_DEFAULTS[threshold])}
+                    title="Match threshold"
+                    onChange={e => setThresholds(t => ({ ...t, [threshold]: e.target.value }))}
+                    onBlur={e => api()?.set_threshold(threshold, e.target.value)}
+                    style={{
+                      width: '55px',
+                      flexShrink: 0,
+                      fontFamily: "'VT323', monospace",
+                      fontSize: '16px',
+                      color: 'var(--gt-text)',
+                      background: 'var(--gt-surface-lo)',
+                      border: '2px solid var(--gt-bevel-lo)',
+                      borderRadius: '3px',
+                      padding: '2px 6px',
+                    }}
+                  />
+                )}
                 <button disabled={busy} onClick={() => api()?.capture_item(key, kind)} className="gt-btn gt-btn-blue">
                   Set
                 </button>
               </div>
             ))}
+            <div className="gt-row">
+              <span style={{ fontFamily: "'VT323', monospace", fontSize: '17px', color: 'var(--gt-text-muted)', width: '130px', flexShrink: 0 }}>
+                Cast delay (s)
+              </span>
+              <input
+                type="number"
+                step="0.05"
+                min="0"
+                disabled={busy}
+                value={castDelay}
+                placeholder="0.1-0.35 (default)"
+                onChange={e => setCastDelay(e.target.value)}
+                onBlur={e => api()?.set_cast_delay(e.target.value)}
+                style={{
+                  flex: 1,
+                  fontFamily: "'VT323', monospace",
+                  fontSize: '16px',
+                  color: 'var(--gt-text)',
+                  background: 'var(--gt-surface-lo)',
+                  border: '2px solid var(--gt-bevel-lo)',
+                  borderRadius: '3px',
+                  padding: '2px 8px',
+                }}
+              />
+            </div>
           </div>
         </div>
 

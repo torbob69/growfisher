@@ -113,13 +113,19 @@ def grab_window(bbox=None):
         arr = _latest_frame
     if bbox is None:
         return Image.fromarray(arr[..., :3][..., ::-1])  # BGRA → RGB
-    # WGC frame is window-relative (incl. title bar); bbox is client-relative — shift
-    wl, wt, _, _ = win32gui.GetWindowRect(HWND)
+    # WGC frame is window-relative (incl. title bar); bbox is client-relative — shift.
+    # On a monitor whose DPI differs from the one Growtopia last rendered at, DWM
+    # bitmap-stretches the window's real pixels for display and WGC captures that
+    # stretched surface, so the frame size no longer matches GetWindowRect — rescale.
+    wl, wt, wr, wb = win32gui.GetWindowRect(HWND)
     cx, cy = win32gui.ClientToScreen(HWND, (0, 0))
     ox, oy = cx - wl, cy - wt
-    x1, y1 = max(0, bbox[0]+ox), max(0, bbox[1]+oy)
+    fh, fw = arr.shape[:2]
+    sx, sy = fw / (wr - wl), fh / (wb - wt)
+    x1, y1 = max(0, round((bbox[0]+ox)*sx)), max(0, round((bbox[1]+oy)*sy))
+    x2, y2 = round((bbox[2]+ox)*sx), round((bbox[3]+oy)*sy)
     # ponytail: crop the array first — converting the whole ~6MB frame per check was the cost
-    return Image.fromarray(arr[y1:bbox[3]+oy, x1:bbox[2]+ox, :3][..., ::-1])
+    return Image.fromarray(arr[y1:y2, x1:x2, :3][..., ::-1])
 
 def get_image(img_name : str):
     top_left, bottom_right = get_area()
