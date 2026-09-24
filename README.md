@@ -16,6 +16,8 @@ You can auto-recycle the fish when your current spot is full, while browsing on 
 <img width="800" height="500" alt="ezgif-23bb0368f667c674" src="https://github.com/user-attachments/assets/bd2a4c23-474f-4607-acfc-be585cdbc286" />
 
 ---
+# Update
+Fixed unresponsive splash region detection, and added toggle on/off for normal or deto/drill mode
 
 ## The problem with existing autofishing tools
 
@@ -27,7 +29,7 @@ You can auto-recycle the fish when your current spot is full, while browsing on 
 
 ## Why Growfisher is different
 
-Growfisher uses computer vision to watch the game the same way a human would — by looking at the screen. It detects the fishing state visually and responds accordingly.
+Growfisher uses computer vision to watch the game the same way a human would, by looking at the screen. It detects the fishing state visually and responds accordingly.
 
 - **Update-proof.** It does not touch game files, memory, or network traffic. Growtopia updates cannot break it.
 - **Multitask-friendly.** Input is sent directly to the game's window handle, so the game does not need to be in focus. You can watch YouTube, browse, or work while it runs.
@@ -39,7 +41,7 @@ Growfisher uses computer vision to watch the game the same way a human would —
 
 - Automatic cast, wait, and recycle when spot is full
 - Detects splash, bite, and empty line events via template matching
-- Sends input directly to the Growtopia window — works minimized or behind other windows
+- Sends input directly to the Growtopia window works minimized or behind other windows
 - No DLL injection, no packet manipulation, no game file modification
 
 ---
