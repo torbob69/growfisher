@@ -13,9 +13,10 @@ const CFG_ITEMS = [
   { key: 'emptier_img',    label: 'Inv. emptier',   kind: 'region', threshold: 'emptier_threshold' },
   { key: 'empty_fish_img', label: 'Empty fish',     kind: 'region' },
   { key: 'number_bbox',    label: 'Recycle number', kind: 'region' },
+  { key: 'fav_img',        label: 'Fav item',       kind: 'region', threshold: 'fav_diff_px', optional: true },
 ]
 
-const THRESHOLD_DEFAULTS = { splash_diff: 15, nothing_threshold: 0.5, emptier_threshold: 0.35 }
+const THRESHOLD_DEFAULTS = { splash_diff: 15, nothing_threshold: 0.5, emptier_threshold: 0.35, fav_diff_px: 1 }
 
 const api = () => window.pywebview?.api
 
@@ -28,6 +29,8 @@ export default function App() {
   const [capturing,  setCapturing]  = useState(false)
   const [paused,     setPaused]     = useState(false)
   const [deto,       setDeto]       = useState(true)
+  const [record,     setRecord]     = useState(false)
+  const [overlay,    setOverlay]    = useState(false)
   const [castDelay,  setCastDelay]  = useState('')
   const [thresholds, setThresholds] = useState({})
   const [fish,       setFish]       = useState(0)
@@ -52,6 +55,8 @@ export default function App() {
         setCapturing(ev.capturing)
         setPaused(ev.paused)
         setDeto(ev.deto)
+        setRecord(ev.record)
+        setOverlay(ev.overlay)
         setFish(ev.fish)
         setElapsed(ev.elapsed)
       }
@@ -67,7 +72,7 @@ export default function App() {
   const closeLog = () => { setLogOpen(false); setUnreadLogs(0) }
 
   const items  = CFG_ITEMS.filter(i => deto || !i.deto)
-  const allSet = items.every(i => cfg[i.key]?.ok)
+  const allSet = items.every(i => i.optional || cfg[i.key]?.ok)
   const busy   = running || capturing
 
   return (
@@ -197,6 +202,22 @@ export default function App() {
                 className={`gt-btn ${deto ? 'gt-btn-green' : 'gt-btn-red'}`}
               >
                 Deto: {deto ? 'ON' : 'OFF'}
+              </button>
+              <button
+                disabled={busy}
+                onClick={() => api()?.set_record(!record)}
+                aria-pressed={record}
+                className={`gt-btn ${record ? 'gt-btn-green' : 'gt-btn-red'}`}
+              >
+                Rec: {record ? 'ON' : 'OFF'}
+              </button>
+              <button
+                onClick={() => api()?.set_overlay(!overlay)}
+                aria-pressed={overlay}
+                title="Show YOLO detections over Growtopia (display only)"
+                className={`gt-btn ${overlay ? 'gt-btn-green' : 'gt-btn-red'}`}
+              >
+                Boxes: {overlay ? 'ON' : 'OFF'}
               </button>
               <button disabled={busy} onClick={() => api()?.start_setup_all()} className="gt-btn gt-btn-blue">
                 Setup All

@@ -7,3 +7,9 @@ build/
 dist/
 ui/dist/
 .impeccable
+dataset/
+__pycache__/
+.venv-yolo/
+runs/
+*.pt
+*.onnx

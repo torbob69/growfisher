@@ -1,4 +1,6 @@
-from utils import get_mouse_pos, get_image, click, press, match, diff, read_number
+from utils import (get_mouse_pos, get_image, click, press, match, diff, read_number,
+                   pixels_changed)
+from recorder import Recorder
 import time, random
 from threading import Event
 
@@ -15,10 +17,15 @@ class Autofisher:
         self.splash_diff = 15          # mean pixel change vs splash.png that counts as a bite
         self.nothing_threshold = 0.5   # match score for nothing.png
         self.emptier_threshold = 0.35  # match score for emptier.png
+        self.fav_img = None            # optional: region that must never change
+        self.fav_diff_px = 1           # pixels of change in fav_img that stops the bot
+        self.record = False            # save detection frames to dataset/raw for training
         if cfg is None:
             cfg = self._interactive_calibrate()
+        self.cfg = cfg
         for k, v in cfg.items():
             setattr(self, k, v)
+        self.rec = Recorder(enabled=bool(self.record), on_log=self.log)
 
     def _interactive_calibrate(self):
         cfg = {}
@@ -51,6 +58,7 @@ class Autofisher:
         click(*self.bait_pos)
         time.sleep(d)
         click(*self.water_pos)
+        self.rec.mark("cast")
 
     def recycle_inventory(self):
         while not match(self.empty_fish_img, "empty_fish.png"):
@@ -73,6 +81,13 @@ class Autofisher:
     CAST_COOLDOWN = 2  # blanks detection during cast/catch animations
 
     def loop(self):
+        self.rec.start(cfg=self.cfg)
+        try:
+            self._loop()
+        finally:
+            self.rec.stop()
+
+    def _loop(self):
         self.log("autofisher running")
         self.fish = 0
         self.cast()
@@ -82,6 +97,14 @@ class Autofisher:
         while not self.stopped():
             self.wait_while_paused()
             if self.stopped(): break
+
+            # fav item guard — checked even during cooldown; losing it means bail now
+            if self.fav_img:
+                px = pixels_changed(self.fav_img, "fav.png")
+                if px >= self.fav_diff_px:
+                    self.log(f"fav item changed ({px}px) → stopping")
+                    self.stop_event.set()
+                    break
 
             # cooldown — skip every check while the cast/catch is still animating
             if time.time() - last_cast < self.CAST_COOLDOWN:
@@ -94,11 +117,14 @@ class Autofisher:
             if match(self.nothing_img, "nothing.png", threshold=self.nothing_threshold):
                 self.log(f"nothing on the line → recast (splash peak {peak:.0f} "
                          f"vs splash_diff {self.splash_diff})")
+                self.rec.event("nothing", regions={"nothing_hint": self.nothing_img},
+                               after=(0.4,), splash_peak=peak)
                 time.sleep(1.5)
             elif self.deto and match(self.uranium_img, "uranium.png"):
                 time.sleep(0.15)
                 if not match(self.uranium_img, "uranium.png"): continue
 
+                self.rec.event("uranium", regions={"uranium": self.uranium_img}, after=(0.3,))
                 self.log("water frozen → deto")
                 time.sleep(self.delay())
                 click(*self.deto_pos)
@@ -106,16 +132,22 @@ class Autofisher:
                 click(*self.water_pos)
                 time.sleep(self.delay())
             elif match(self.emptier_img, "emptier.png", threshold=self.emptier_threshold):
+                self.rec.event("emptier", regions={"emptier_hint": self.emptier_img}, after=(0.4,))
                 self.log("inventory full → recycle")
                 self.recycle_inventory()
             elif d > self.splash_diff:
+                self.rec.event("splash", regions={"splash": self.splash_img},
+                               after=(0.1, 0.2, 0.3), diff=d)
                 time.sleep(self.delay())
                 click(*self.water_pos)
+                self.rec.mark("click", reason="splash", diff=d)
+                self.rec.event("caught", now=False, after=(0.6, 1.2, 1.8))
                 time.sleep(self.delay())
                 self.fish += 1
                 self.log(f"caught, diff {d:.0f} (total: {self.fish})")
                 time.sleep(0.5)
             else:
+                self.rec.idle(regions={"splash": self.splash_img}, diff=d)
                 time.sleep(0.05)
                 continue
 

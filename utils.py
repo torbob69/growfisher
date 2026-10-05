@@ -92,7 +92,7 @@ _latest_frame = None
 _frame_lock = threading.Lock()
 _frame_ready = threading.Event()
 
-_cap = WindowsCapture(window_name=WIN_NAME)
+_cap = WindowsCapture(window_name=WIN_NAME, cursor_capture=False)  # cursor over splash = false bite
 
 @_cap.event
 def on_frame_arrived(frame: Frame, capture_control: InternalCaptureControl):
@@ -107,12 +107,12 @@ def on_closed():
 
 _cap.start_free_threaded()
 
-def grab_window(bbox=None):
+def latest_frame():
     _frame_ready.wait(timeout=2)  # blocks once at startup until first frame arrives
     with _frame_lock:
-        arr = _latest_frame
-    if bbox is None:
-        return Image.fromarray(arr[..., :3][..., ::-1])  # BGRA → RGB
+        return _latest_frame
+
+def client_to_frame(bbox, frame_shape):
     # WGC frame is window-relative (incl. title bar); bbox is client-relative — shift.
     # On a monitor whose DPI differs from the one Growtopia last rendered at, DWM
     # bitmap-stretches the window's real pixels for display and WGC captures that
@@ -120,10 +120,19 @@ def grab_window(bbox=None):
     wl, wt, wr, wb = win32gui.GetWindowRect(HWND)
     cx, cy = win32gui.ClientToScreen(HWND, (0, 0))
     ox, oy = cx - wl, cy - wt
-    fh, fw = arr.shape[:2]
+    fh, fw = frame_shape[:2]
     sx, sy = fw / (wr - wl), fh / (wb - wt)
-    x1, y1 = max(0, round((bbox[0]+ox)*sx)), max(0, round((bbox[1]+oy)*sy))
+    x1, y1 = round((bbox[0]+ox)*sx), round((bbox[1]+oy)*sy)
     x2, y2 = round((bbox[2]+ox)*sx), round((bbox[3]+oy)*sy)
+    return (min(max(0, x1), fw), min(max(0, y1), fh), min(max(0, x2), fw), min(max(0, y2), fh))
+
+def grab_window(bbox=None):
+    arr = latest_frame()
+    if arr is None:
+        raise RuntimeError(f"no frame from the {WIN_NAME} window yet — is it open and not minimized?")
+    if bbox is None:
+        return Image.fromarray(arr[..., :3][..., ::-1])  # BGRA → RGB
+    x1, y1, x2, y2 = client_to_frame(bbox, arr.shape)
     # ponytail: crop the array first — converting the whole ~6MB frame per check was the cost
     return Image.fromarray(arr[y1:y2, x1:x2, :3][..., ::-1])
 
@@ -156,6 +165,16 @@ def diff(area: tuple[int, int, int, int], ori_img_path: str) -> float:
         raise ValueError(f"{ori_img_path} is {needle.shape[1]}x{needle.shape[0]} but region "
                          f"is {hay.shape[1]}x{hay.shape[0]} — recapture that region")
     return float(np.abs(hay.astype(np.int16) - needle.astype(np.int16)).mean())
+
+def pixels_changed(area: tuple[int, int, int, int], ori_img_path: str) -> int:
+    # ponytail: count of pixels differing at all from the saved png — for "stop if
+    # anything moved" checks, where diff()'s mean would average a 1px change to ~0
+    hay = cv2.cvtColor(np.array(grab_window(area)), cv2.COLOR_RGB2BGR)
+    needle = cv2.imread(ori_img_path)
+    if needle.shape != hay.shape:
+        raise ValueError(f"{ori_img_path} is {needle.shape[1]}x{needle.shape[0]} but region "
+                         f"is {hay.shape[1]}x{hay.shape[0]} — recapture that region")
+    return int(np.count_nonzero(np.any(hay != needle, axis=2)))
 
 def read_text(area: tuple[int, int, int, int], digits_only: bool = False, debug: bool = False):
     # rapidocr; upscale + pad whitespace so detector sees isolated digits

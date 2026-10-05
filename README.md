@@ -29,7 +29,7 @@ Fixed unresponsive splash region detection, and added toggle on/off for normal o
 
 ## Why Growfisher is different
 
-Growfisher uses computer vision to watch the game the same way a human would, by looking at the screen. It detects the fishing state visually and responds accordingly.
+Growfisher uses OpenCV to watch the game the same way a human would, by looking at the screen. It detects the fishing state visually and responds accordingly.
 
 - **Update-proof.** It does not touch game files, memory, or network traffic. Growtopia updates cannot break it.
 - **Multitask-friendly.** Input is sent directly to the game's window handle, so the game does not need to be in focus. You can watch YouTube, browse, or work while it runs.

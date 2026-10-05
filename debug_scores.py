@@ -3,8 +3,9 @@ import json, time, cv2, numpy as np
 import utils
 from utils import grab_window, diff
 
-REGIONS = ("splash", "uranium", "nothing", "emptier", "empty_fish")
 calib = json.load(open("calib.json"))
+REGIONS = [n for n in ("splash", "uranium", "nothing", "emptier", "empty_fish")
+           if calib.get(f"{n}_img") is not None]  # uranium_img is null with deto off
 needles = {n: cv2.imread(f"{n}.png") for n in REGIONS}
 
 prev_frame = None

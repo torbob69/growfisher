@@ -15,13 +15,16 @@ from PIL import Image
 from threading import Event
 from utils import HWND, grab_window
 from autofisher import Autofisher
+from overlay import Overlay
 
 CALIB_FILE = "calib.json"
 DETO_KEYS = ('deto_pos', 'uranium_img')  # only needed when deto mode is on
+OPTIONAL_KEYS = ('fav_img',)             # unset = feature off, Start still allowed
 THRESHOLD_DEFAULTS = {  # mirrors Autofisher's own defaults (autofisher.py)
     'splash_diff':       15,
     'nothing_threshold': 0.5,
     'emptier_threshold': 0.35,
+    'fav_diff_px':       1,
 }
 
 CFG_ITEMS = [
@@ -36,6 +39,7 @@ CFG_ITEMS = [
     ('emptier_img',    'Inv. emptier',   'region', 'emptier'),
     ('empty_fish_img', 'Empty fish',     'region', 'empty_fish'),
     ('number_bbox',    'Recycle number', 'region', None),
+    ('fav_img',        'Fav item',       'region', 'fav'),
 ]
 
 
@@ -48,6 +52,9 @@ class Api:
     def __init__(self):
         self.cfg       = {k: None for k, *_ in CFG_ITEMS}
         self.deto      = True
+        self.record    = False
+        self.overlay   = False  # display-only YOLO boxes over Growtopia
+        self._overlay  = Overlay(on_log=lambda m: self._log(m))
         self.cast_delay = None  # None = random 0.1-0.35s (Autofisher default)
         self.thresholds = dict(THRESHOLD_DEFAULTS)
         self.capturing = False
@@ -82,6 +89,8 @@ class Api:
             'capturing': self.capturing,
             'paused':    self.pause,
             'deto':      self.deto,
+            'record':    self.record,
+            'overlay':   self.overlay,
             'fish':      getattr(self._fisher, 'fish', 0),
             'elapsed':   elapsed,
         })
@@ -92,6 +101,24 @@ class Api:
         self._save_calib()
         self._log(f"deto mode {'on' if self.deto else 'off'}")
         self._check_ready()
+        self._state()
+
+    def set_record(self, on):
+        if self.running: return
+        self.record = bool(on)
+        self._save_calib()
+        self._log(f"dataset recording {'on' if self.record else 'off'}")
+        self._state()
+
+    def set_overlay(self, on):
+        # display only, so it's allowed while fishing
+        self.overlay = bool(on)
+        if self.overlay:
+            self.overlay = self._overlay.start()
+        else:
+            self._overlay.stop()
+        self._save_calib()
+        self._log(f"detection overlay {'on' if self.overlay else 'off'}")
         self._state()
 
     def set_cast_delay(self, val):
@@ -113,7 +140,8 @@ class Api:
         self._push({'type': 'threshold', 'key': key, 'value': self.thresholds[key]})
 
     def _required(self):
-        return [k for k in self.cfg if self.deto or k not in DETO_KEYS]
+        return [k for k in self.cfg
+                if k not in OPTIONAL_KEYS and (self.deto or k not in DETO_KEYS)]
 
     def _ready(self):
         return all(self.cfg[k] is not None for k in self._required())
@@ -173,6 +201,7 @@ class Api:
         try:
             self._status("Setting up...", '#d29922')
             for k, label, kind, save in CFG_ITEMS:
+                if k in OPTIONAL_KEYS: continue  # set it from its own row if you want it
                 if not self.deto and k in DETO_KEYS: continue
                 self._push({'type': 'cfg_update', 'key': k, 'text': 'Capturing...', 'ok': False})
                 if kind == 'pos':
@@ -215,7 +244,7 @@ class Api:
     def _fish_thread(self):
         try:
             self._fisher = Autofisher(cfg={**self.cfg, 'deto': self.deto, 'cast_delay': self.cast_delay,
-                                            **self.thresholds},
+                                            'record': self.record, **self.thresholds},
                                       stop_event=self.stop_event,
                                       on_log=self._log, paused=lambda: self.pause)
             self._fisher.loop()
@@ -257,7 +286,7 @@ class Api:
     def _save_calib(self):
         with open(CALIB_FILE, 'w') as f:
             json.dump({**self.cfg, 'deto': self.deto, 'cast_delay': self.cast_delay,
-                       **self.thresholds}, f, indent=2)
+                       'record': self.record, 'overlay': self.overlay, **self.thresholds}, f, indent=2)
 
     def load_calibration(self):
         if not os.path.exists(CALIB_FILE): return
@@ -266,6 +295,10 @@ class Api:
         except Exception as e:
             self._log(f"calib load failed: {e}"); return
         self.deto = bool(data.get('deto', True))
+        self.record = bool(data.get('record', False))
+        self.overlay = bool(data.get('overlay', False))
+        if self.overlay:
+            self.overlay = self._overlay.start()
         self.cast_delay = data.get('cast_delay')
         self._push({'type': 'cast_delay', 'value': self.cast_delay})
         for key, default in THRESHOLD_DEFAULTS.items():

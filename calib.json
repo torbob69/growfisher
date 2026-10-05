@@ -1,55 +1,64 @@
 {
   "bait_pos": [
-    1116,
-    780
+    1183,
+    692
   ],
   "water_pos": [
-    1384,
-    526
+    1137,
+    468
   ],
   "deto_pos": null,
   "first_fish_pos": [
-    619,
-    1097
+    461,
+    956
   ],
   "recycle_pos": [
-    2058,
-    1064
+    1757,
+    931
   ],
   "uranium_img": null,
   "splash_img": [
-    1396,
-    374,
-    1424,
-    411
+    1142,
+    371,
+    1177,
+    393
   ],
   "nothing_img": [
-    754,
-    206,
-    796,
-    250
+    762,
+    208,
+    1236,
+    246
   ],
   "emptier_img": [
-    1106,
-    157,
-    1316,
-    185
+    686,
+    177,
+    1306,
+    206
   ],
   "empty_fish_img": [
-    581,
-    1067,
-    647,
-    1142
+    425,
+    927,
+    493,
+    996
   ],
   "number_bbox": [
-    640,
-    602,
-    1734,
-    686
+    552,
+    508,
+    1436,
+    575
+  ],
+  "fav_img": [
+    66,
+    891,
+    137,
+    945
   ],
   "deto": false,
-  "cast_delay": 1.5,
+  "cast_delay": 0.5,
+  "record": true,
+  "overlay": true,
   "splash_diff": 15,
-  "nothing_threshold": 0.5,
-  "emptier_threshold": 0.35
+  "nothing_threshold": 0.65,
+  "emptier_threshold": 0.45,
+  "fav_diff_px": 100.0
 }
