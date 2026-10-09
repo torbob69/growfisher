@@ -1,20 +1,25 @@
-# Turns X-AnyLabeling JSON labels in dataset/raw into a YOLO dataset in dataset/yolo.
-# Read-only on dataset/raw. Rerun any time you label more; dataset/yolo is rebuilt from scratch.
-import json, random, shutil
+# Builds the YOLO dataset in dataset/yolo from REVIEWED labels only: the .json files in
+# dataset/autolabel session folders renamed to end with "-done" (e.g. 20261005_124043-done).
+# Only dataset/yolo is written, and it is rebuilt from scratch on every run.
+import json, os, random, shutil
 from collections import Counter
 from pathlib import Path
 
 from PIL import Image
 
 CLASSES = ["splash", "bubble_nothing", "bubble_emptier", "bubble_caught", "bubble_maxed"]
-RAW, BG, OUT = Path("../dataset/raw"), Path("../dataset/background"), Path("../dataset/yolo")
-AUTO = Path("../dataset/autolabel")  # model pre-labels; only those listed in reviewed.txt are used
+AUTO, BG, OUT = Path("../dataset/autolabel"), Path("../dataset/background"), Path("../dataset/yolo")
+DONE = "-done"
 VAL_FRAC = 0.2
 IMG_EXT = (".jpg", ".jpeg", ".png")
 
 
 def warn(msg):
     print(f"  WARNING: {msg}")
+
+
+def strip_done(name):
+    return name[:-len(DONE)] if name.endswith(DONE) else name
 
 
 def find_image(js):
@@ -82,38 +87,23 @@ def pick_val_sessions(per_session, tries=5000):
 
 
 def main():
-    print(f"Reading labels from {RAW} ...")
-    items = []  # (session, image_path, label_lines)
-    seen = set()  # session/event/name — a hand label in raw wins over an autolabel copy
-    for js in sorted(RAW.glob("*/*/*.json")):
-        r = read_labels(js)
-        if r:
-            items.append((js.parent.parent.name, *r))
-            seen.add(js.relative_to(RAW).with_suffix("").as_posix())
-
-    reviewed_txt = AUTO / "reviewed.txt"
-    reviewed = ({l.strip().replace("\\", "/") for l in reviewed_txt.read_text(encoding="utf-8").splitlines()
-                 if l.strip() and not l.startswith("#")} if reviewed_txt.exists() else set())
-    n_auto = n_unreviewed = 0
+    print(f"Reading -done sessions in {AUTO} ...")
+    items = []  # (session, event, image_path, label_lines) — session/event without "-done"
+    n_skipped = 0
     for js in sorted(AUTO.glob("*/*/*.json")):
-        img = find_image(js)
-        if img is None or img.relative_to(AUTO).as_posix() not in reviewed:
-            n_unreviewed += 1  # unreviewed auto-labels never enter training
-            continue
-        key = js.relative_to(AUTO).with_suffix("").as_posix()
-        if key in seen:
+        sess, ev = js.parent.parent.name, js.parent.name
+        if not sess.endswith(DONE):
+            n_skipped += 1  # session not reviewed yet: never enters training
             continue
         r = read_labels(js)
         if r:
-            items.append((js.parent.parent.name, *r))
-            seen.add(key)
-            n_auto += 1
-    print(f"autolabel: using {n_auto} reviewed images, ignoring {n_unreviewed} unreviewed")
+            items.append((strip_done(sess), ev, *r))
+    print(f"using {len(items)} images from -done sessions, ignoring {n_skipped} not yet -done")
     if not items:
-        raise SystemExit(f"No labeled images found in {RAW} or reviewed ones in {AUTO}")
+        raise SystemExit(f"No reviewed labels: rename a reviewed session folder in {AUTO} to end with {DONE}")
 
     per_session = {}
-    for sess, _, lines in items:
+    for sess, _, _, lines in items:
         c = per_session.setdefault(sess, Counter())
         c["_images"] += 1
         c.update(CLASSES[int(l.split()[0])] for l in lines)
@@ -124,7 +114,7 @@ def main():
     bg = sorted(p for p in BG.glob("*") if p.suffix.lower() in IMG_EXT) if BG.is_dir() else []
 
     if OUT.exists():
-        shutil.rmtree(OUT)  # generated folder; dataset/raw is never touched
+        shutil.rmtree(OUT)  # generated folder; only links/copies live here
     for sub in ("images/train", "images/val", "labels/train", "labels/val"):
         (OUT / sub).mkdir(parents=True)
 
@@ -132,7 +122,11 @@ def main():
              for sp in ("train", "val")}
 
     def put(split, src, name, lines):
-        shutil.copy2(src, OUT / "images" / split / name)
+        dst = OUT / "images" / split / name
+        try:
+            os.link(src, dst)  # hardlink: no extra disk space; training never writes images
+        except OSError:
+            shutil.copy2(src, dst)
         (OUT / "labels" / split / Path(name).with_suffix(".txt")).write_text(
             "".join(l + "\n" for l in lines))
         st = stats[split]
@@ -141,8 +135,8 @@ def main():
         st["boxes"].update(CLASSES[int(l.split()[0])] for l in lines)
         st["images"].update({CLASSES[int(l.split()[0])] for l in lines})
 
-    for sess, img, lines in items:
-        name = f"{sess}_{img.parent.name}_{img.name}"  # file names repeat across sessions
+    for sess, ev, img, lines in items:
+        name = f"{sess}_{ev}_{img.name}"  # file names repeat across sessions
         if not val_sessions:
             put("train", img, name, lines); put("val", img, name, lines)
         else:

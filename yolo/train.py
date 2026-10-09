@@ -25,10 +25,10 @@ def main():
     model.train(
         data=DATA,
         imgsz=IMGSZ,
-        epochs=150,
-        patience=40,      # stop early if val doesn't improve for 40 epochs
+        epochs=50,
+        patience=15,      # stop early if val doesn't improve for 40 epochs
         fliplr=0.0,       # the game never shows mirrored text
-        batch=4,          # ponytail: fits 8GB VRAM at 1280; lower to 4 on "CUDA out of memory"
+        batch=8,          # ponytail: fits 8GB VRAM at 1280; lower to 4 on "CUDA out of memory"
         workers=WORKERS,
         device=device,
         project="runs/detect",

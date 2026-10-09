@@ -1,14 +1,14 @@
-# Pre-labels unlabeled dataset/raw images with the trained model, for review in X-AnyLabeling.
-#   python autolabel.py                         -> label new images into dataset/autolabel/
-#   python autolabel.py mark-reviewed <folder>  -> add every image in <folder> to reviewed.txt
-# Only images listed in dataset/autolabel/reviewed.txt are used by prepare_dataset.py.
-import json, shutil, sys
+# Pre-labels every dataset/raw image with the trained model, for review in X-AnyLabeling.
+#   python autolabel.py   -> new images get a hardlink + .json in dataset/autolabel/<session>/<event>/
+# Review a recording session in X-AnyLabeling, then rename its SESSION folder with "-done"
+# (20261005_124043 -> 20261005_124043-done). prepare_dataset.py trains ONLY on -done sessions.
+import json, os, shutil
 from collections import Counter
 from pathlib import Path
 
 # ---------------------------------------------------------------- CONFIG ----
 HERE = Path(__file__).resolve().parent
-MODEL = HERE.parent / "runs/detect/runs/detect/growfisher/weights/best.pt"
+MODEL = HERE.parent / "runs/detect/runs/detect/growfisher-3/weights/best.pt"
 RAW = HERE.parent / "dataset/raw"
 AUTO = HERE.parent / "dataset/autolabel"
 IMGSZ = 1280
@@ -17,14 +17,33 @@ BATCH = 8
 RISKY_CONF = 0.5   # boxes below this get the image flagged for review
 OVERLAP_IOU = 0.3  # different-class boxes overlapping this much get flagged
 MUST_HAVE_BOX = {"splash", "nothing", "emptier", "caught"}
+DONE = "-done"     # session folder suffix that marks "reviewed"
 # ------------------------------------------------------------------------------
 
-REVIEWED = AUTO / "reviewed.txt"
 IMG_EXT = (".jpg", ".jpeg", ".png")
 
 
-def has_json(img):
-    return img.with_suffix(".json").exists()
+def is_done(js):
+    """True if this autolabel .json sits in a session folder renamed to ...-done."""
+    return js.parent.parent.name.endswith(DONE)
+
+
+def already_labeled(rel):
+    # rel = <session>/<event>/<file>. A -done session is finished: never add to it or recreate
+    # it, even if you deleted images from it on purpose.
+    sess, ev, name = rel.parts
+    return (AUTO / (sess + DONE)).is_dir() or (AUTO / sess / ev / name).with_suffix(".json").exists()
+
+
+def link_or_copy(src, dst):
+    # hardlink = same file on disk under a second name: no extra space, and dataset/raw is
+    # never written (X-AnyLabeling only writes the .json). Copy if linking is impossible.
+    if dst.exists():
+        dst.unlink()
+    try:
+        os.link(src, dst)
+    except OSError:
+        shutil.copy2(src, dst)
 
 
 def iou(a, b):
@@ -33,13 +52,6 @@ def iou(a, b):
     inter = ix * iy
     union = (a[2]-a[0])*(a[3]-a[1]) + (b[2]-b[0])*(b[3]-b[1]) - inter
     return inter / union if union > 0 else 0.0
-
-
-def read_reviewed():
-    if not REVIEWED.exists():
-        return set()
-    return {l.strip().replace("\\", "/") for l in REVIEWED.read_text(encoding="utf-8").splitlines()
-            if l.strip() and not l.startswith("#")}
 
 
 def risk(js):
@@ -60,29 +72,29 @@ def risk(js):
         for lb, _, bb in boxes[i+1:]:
             if la != lb and iou(ba, bb) > OVERLAP_IOU:
                 reasons.append(f"overlap: {la} vs {lb}")
-    if not boxes and js.parent.name in MUST_HAVE_BOX:
-        reasons.append(f"no boxes in a {js.parent.name}/ image")
+    event = js.parent.name
+    if not boxes and event in MUST_HAVE_BOX:
+        reasons.append(f"no boxes in a {event}/ image")
     return reasons, min_conf
 
 
 def write_review_order():
-    reviewed = read_reviewed()
     rows = []
     for js in AUTO.glob("*/*/*.json"):
-        rel = next((js.with_suffix(e) for e in IMG_EXT if js.with_suffix(e).exists()), None)
-        if rel is None:
+        if is_done(js):
             continue
-        rel = rel.relative_to(AUTO).as_posix()
-        if rel in reviewed:
+        img = next((js.with_suffix(e) for e in IMG_EXT if js.with_suffix(e).exists()), None)
+        if img is None:
             continue
         try:
             reasons, min_conf = risk(js)
         except Exception as e:
             reasons, min_conf = [f"unreadable JSON ({e})"], 0.0
-        rows.append((-len(reasons), min_conf, rel, "; ".join(reasons) or f"ok (min conf {min_conf:.2f})"))
+        rows.append((-len(reasons), min_conf, img.relative_to(AUTO).as_posix(),
+                     "; ".join(reasons) or f"ok (min conf {min_conf:.2f})"))
     rows.sort()
     (AUTO / "review_order.txt").write_text(
-        "# not-yet-reviewed images, most doubtful first\n"
+        "# images in sessions not yet renamed -done, most doubtful first\n"
         + "".join(f"{rel}\t{why}\n" for _, _, rel, why in rows), encoding="utf-8")
     return sum(1 for r in rows if r[0] < 0), len(rows)
 
@@ -92,13 +104,11 @@ def autolabel():
         raise SystemExit(f"Model not found: {MODEL}\nTrain first, or fix MODEL at the top of autolabel.py")
     todo = []
     for img in sorted(p for p in RAW.glob("*/*/*") if p.suffix.lower() in IMG_EXT):
-        if has_json(img):
-            continue  # labeled by hand
-        dst = AUTO / img.relative_to(RAW)
-        if has_json(dst):
-            continue  # already auto-labeled (maybe reviewed) — never overwrite
-        todo.append((img, dst))
-    print(f"{len(todo)} unlabeled images to process")
+        rel = img.relative_to(RAW)
+        if already_labeled(rel):
+            continue  # never overwrite a label you may have reviewed
+        todo.append((img, AUTO / rel))
+    print(f"{len(todo)} new images to label")
 
     boxes, empty = Counter(), 0
     if todo:
@@ -128,7 +138,7 @@ def autolabel():
                                "description": f"conf={c:.2f}"})
             empty += not shapes
             dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)  # copy only; dataset/raw is never written
+            link_or_copy(src, dst)
             dst.with_suffix(".json").write_text(json.dumps(
                 {"version": "4.1.0", "flags": {}, "shapes": shapes, "imagePath": dst.name,
                  "imageData": None, "imageHeight": h, "imageWidth": w}, indent=2), encoding="utf-8")
@@ -137,34 +147,13 @@ def autolabel():
 
     AUTO.mkdir(parents=True, exist_ok=True)
     flagged, pending = write_review_order()
-    print(f"\nimages processed:       {len(todo)}")
+    print(f"\nimages labeled:         {len(todo)}")
     for label, n in boxes.most_common():
         print(f"  {label:<16}{n} boxes")
     print(f"images with no boxes:   {empty}")
-    print(f"flagged for review:     {flagged} of {pending} unreviewed  -> {AUTO / 'review_order.txt'}")
-
-
-def mark_reviewed(folder):
-    folder = Path(folder).resolve()
-    try:
-        folder.relative_to(AUTO)
-    except ValueError:
-        raise SystemExit(f"{folder} is not inside {AUTO}")
-    have = read_reviewed()
-    new = [p.relative_to(AUTO).as_posix() for p in sorted(folder.rglob("*"))
-           if p.suffix.lower() in IMG_EXT and has_json(p)]
-    new = [r for r in new if r not in have]
-    AUTO.mkdir(parents=True, exist_ok=True)
-    with open(REVIEWED, "a", encoding="utf-8") as f:
-        f.writelines(r + "\n" for r in new)
-    print(f"added {len(new)} images to {REVIEWED} ({len(have) + len(new)} reviewed total)")
-    write_review_order()
+    print(f"waiting for review:     {pending} images (sessions not renamed -done yet)")
+    print(f"  of which doubtful:    {flagged}  (listed first in {AUTO / 'review_order.txt'})")
 
 
 if __name__ == "__main__":
-    if len(sys.argv) == 3 and sys.argv[1] == "mark-reviewed":
-        mark_reviewed(sys.argv[2])
-    elif len(sys.argv) == 1:
-        autolabel()
-    else:
-        raise SystemExit("usage: python autolabel.py  |  python autolabel.py mark-reviewed <folder>")
+    autolabel()

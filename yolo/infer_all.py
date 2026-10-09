@@ -10,7 +10,7 @@ import torch
 from ultralytics import YOLO
 
 HERE = Path(__file__).resolve().parent
-MODEL = HERE.parent / "runs/detect/runs/detect/growfisher-2/weights/best.pt"
+MODEL = HERE.parent / "runs/detect/runs/detect/growfisher-3/weights/best.pt"
 RAW = HERE.parent / "dataset/raw"
 IMGSZ, CONF, BATCH = 1280, 0.25, 8
 OUT_WIDTH = 1280  # saved previews are downscaled to this width to keep the folder small
