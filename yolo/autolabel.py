@@ -1,8 +1,9 @@
 # Pre-labels every dataset/raw image with the trained model, for review in X-AnyLabeling.
 #   python autolabel.py   -> new images get a hardlink + .json in dataset/autolabel/<session>/<event>/
-# Review a recording session in X-AnyLabeling, then rename its SESSION folder with "-done"
-# (20261005_124043 -> 20261005_124043-done). prepare_dataset.py trains ONLY on -done sessions.
-import json, os, shutil
+# Review a recording session in X-AnyLabeling, then rename its SESSION folder to
+# <world>-<session>[-far]-done (e.g. empangpeleh21-20261003_142718-done). Sessions are matched by
+# their recording time, so renaming is safe. prepare_dataset.py trains ONLY on -done sessions.
+import json, os, re, shutil
 from collections import Counter
 from pathlib import Path
 
@@ -28,11 +29,40 @@ def is_done(js):
     return js.parent.parent.name.endswith(DONE)
 
 
-def already_labeled(rel):
-    # rel = <session>/<event>/<file>. A -done session is finished: never add to it or recreate
-    # it, even if you deleted images from it on purpose.
-    sess, ev, name = rel.parts
-    return (AUTO / (sess + DONE)).is_dir() or (AUTO / sess / ev / name).with_suffix(".json").exists()
+STAMP = re.compile(r"\d{8}_\d{6}")  # recording time = the session's identity
+
+
+def session_folders():
+    """recording time -> its folder name in autolabel, whatever you renamed it to."""
+    out = {}
+    for d in sorted(AUTO.iterdir()) if AUTO.is_dir() else ():
+        m = STAMP.search(d.name)
+        if not (d.is_dir() and m):
+            continue
+        prev = out.get(m.group())
+        if prev:
+            print(f"  WARNING: two folders for session {m.group()}: {prev} and {d.name}")
+            if prev.endswith(DONE):
+                continue  # a reviewed folder always wins
+        out[m.group()] = d.name
+    return out
+
+
+def find_todo():
+    """-> [(raw image, autolabel destination)] for images that still need a label. A -done
+    session is finished: never add to it or recreate it, even if you deleted images from it."""
+    folders = session_folders()
+    todo = []
+    for img in sorted(p for p in RAW.glob("*/*/*") if p.suffix.lower() in IMG_EXT):
+        sess, ev, name = img.relative_to(RAW).parts
+        m = STAMP.search(sess)
+        folder = folders.get(m.group() if m else sess, sess)
+        if folder.endswith(DONE):
+            continue
+        dst = AUTO / folder / ev / name
+        if not dst.with_suffix(".json").exists():
+            todo.append((img, dst))
+    return todo
 
 
 def link_or_copy(src, dst):
@@ -102,12 +132,7 @@ def write_review_order():
 def autolabel():
     if not MODEL.exists():
         raise SystemExit(f"Model not found: {MODEL}\nTrain first, or fix MODEL at the top of autolabel.py")
-    todo = []
-    for img in sorted(p for p in RAW.glob("*/*/*") if p.suffix.lower() in IMG_EXT):
-        rel = img.relative_to(RAW)
-        if already_labeled(rel):
-            continue  # never overwrite a label you may have reviewed
-        todo.append((img, AUTO / rel))
+    todo = find_todo()
     print(f"{len(todo)} new images to label")
 
     boxes, empty = Counter(), 0

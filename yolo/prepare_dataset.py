@@ -1,7 +1,11 @@
 # Builds the YOLO dataset in dataset/yolo from REVIEWED labels only: the .json files in
-# dataset/autolabel session folders renamed to end with "-done" (e.g. 20261005_124043-done).
+# dataset/autolabel session folders named <world>-<session>[-far]-done
+# (e.g. empangpeleh21-20261003_142718-done, public3-20261008_152214-far-done).
+# Train/val is split 80/20 BY WORLD: every session of a world goes to the same side, so val
+# only has worlds the model never trained on. The trailing number is the spot inside a world
+# (empangpeleh21 and empangpeleh29 are both world "empangpeleh"), except for NUMBER_IS_WORLD.
 # Only dataset/yolo is written, and it is rebuilt from scratch on every run.
-import json, os, random, shutil
+import itertools, json, os, random, re, shutil
 from collections import Counter
 from pathlib import Path
 
@@ -12,6 +16,10 @@ AUTO, BG, OUT = Path("../dataset/autolabel"), Path("../dataset/background"), Pat
 DONE = "-done"
 VAL_FRAC = 0.2
 IMG_EXT = (".jpg", ".jpeg", ".png")
+STAMP = re.compile(r"\d{8}_\d{6}")  # recording time inside the folder name
+# Normally the trailing number is a spot inside one world (empangpeleh21 == empangpeleh29).
+# For these names the number IS the world: public1 and public2 are different worlds.
+NUMBER_IS_WORLD = {"public"}
 
 
 def warn(msg):
@@ -20,6 +28,18 @@ def warn(msg):
 
 def strip_done(name):
     return name[:-len(DONE)] if name.endswith(DONE) else name
+
+
+def parse_session(folder):
+    """'empangpeleh21-20261003_142718-far-done' -> ('empangpeleh', True). World is None if the
+    folder has no name before the recording time."""
+    name = strip_done(folder)
+    m = STAMP.search(name)
+    prefix = name[:m.start()].rstrip("-_ ") if m else name
+    base = prefix.rstrip("0123456789") or prefix
+    world = prefix if base in NUMBER_IS_WORLD else base  # spot number -> same world
+    far = "-far" in (name[m.end():] if m else name)
+    return world or None, far
 
 
 def find_image(js):
@@ -65,51 +85,59 @@ def read_labels(js):
     return img, lines
 
 
-def pick_val_sessions(per_session, tries=5000):
-    # Whole sessions go to val, so near-identical frames of one event never sit in both splits.
-    # ponytail: random search for the session set whose val share is closest to 20% for
-    # images AND every class — fine for dozens of sessions, not thousands.
-    total = sum(per_session.values(), Counter())
-    keys = [k for k in total if total[k]]
-    names, rng, best = sorted(per_session), random.Random(0), None
-    for _ in range(tries):
-        rng.shuffle(names)
-        val, acc = set(), Counter()
-        for s in names:
-            if acc["_images"] >= VAL_FRAC * total["_images"]:
-                break
-            val.add(s)
-            acc += per_session[s]
-        score = sum((acc[k] / total[k] - VAL_FRAC) ** 2 for k in keys)
-        if best is None or score < best[0]:
-            best = (score, val)
-    return best[1]
+def pick_val_worlds(per_world):
+    """Whole worlds go to val. Picks the set of worlds whose val share is closest to 20% for
+    the image count, EVERY class's box count, and the -far images (stratified)."""
+    total = sum(per_world.values(), Counter())
+    keys = ["_images"] + [c for c in CLASSES if total[c]]
+    if 0 < total["_far"] < total["_images"]:
+        keys.append("_far")  # only stratify on zoom if both zooms exist
+
+    def score(val):
+        acc = sum((per_world[w] for w in val), Counter())
+        return sum((acc[k] / total[k] - VAL_FRAC) ** 2 for k in keys)
+
+    names = sorted(per_world)
+    if len(names) <= 16:  # exhaustive: every split of up to 16 worlds (65k options)
+        options = (set(c) for r in range(1, len(names)) for c in itertools.combinations(names, r))
+    else:  # ponytail: random search past 16 worlds; exhaustive would be too slow
+        rng = random.Random(0)
+        options = ({w for w in names if rng.random() < VAL_FRAC} for _ in range(20000))
+    return min((o for o in options if o and len(o) < len(names)), key=score)
 
 
 def main():
     print(f"Reading -done sessions in {AUTO} ...")
-    items = []  # (session, event, image_path, label_lines) — session/event without "-done"
-    n_skipped = 0
+    items = []  # (session, world, far, event, image_path, label_lines)
+    n_skipped, no_world = 0, set()
     for js in sorted(AUTO.glob("*/*/*.json")):
-        sess, ev = js.parent.parent.name, js.parent.name
-        if not sess.endswith(DONE):
+        folder, ev = js.parent.parent.name, js.parent.name
+        if not folder.endswith(DONE):
             n_skipped += 1  # session not reviewed yet: never enters training
             continue
         r = read_labels(js)
         if r:
-            items.append((strip_done(sess), ev, *r))
+            world, far = parse_session(folder)
+            if world is None:
+                no_world.add(folder)
+                world = strip_done(folder)  # its own world
+            items.append((strip_done(folder), world, far, ev, *r))
     print(f"using {len(items)} images from -done sessions, ignoring {n_skipped} not yet -done")
+    for f in sorted(no_world):
+        warn(f"{f} has no world name in front — treated as its own world")
     if not items:
         raise SystemExit(f"No reviewed labels: rename a reviewed session folder in {AUTO} to end with {DONE}")
 
-    per_session = {}
-    for sess, _, _, lines in items:
-        c = per_session.setdefault(sess, Counter())
+    per_world, sessions = {}, {}
+    for sess, world, far, _, _, lines in items:
+        c = per_world.setdefault(world, Counter())
         c["_images"] += 1
+        c["_far"] += far
         c.update(CLASSES[int(l.split()[0])] for l in lines)
-    val_sessions = pick_val_sessions(per_session) if len(per_session) > 1 else set()
-    if not val_sessions:
-        warn("only one session has labels — can't split by session, using it for both train and val")
+        sessions.setdefault(world, set()).add(sess)
+    val_worlds = pick_val_worlds(per_world) if len(per_world) > 1 else set()
+    if not val_worlds:
+        warn("only one world has labels — can't split by world, using it for both train and val")
 
     bg = sorted(p for p in BG.glob("*") if p.suffix.lower() in IMG_EXT) if BG.is_dir() else []
 
@@ -118,10 +146,10 @@ def main():
     for sub in ("images/train", "images/val", "labels/train", "labels/val"):
         (OUT / sub).mkdir(parents=True)
 
-    stats = {sp: {"images": Counter(), "boxes": Counter(), "total": 0, "background": 0}
+    stats = {sp: {"images": Counter(), "boxes": Counter(), "total": 0, "background": 0, "far": 0}
              for sp in ("train", "val")}
 
-    def put(split, src, name, lines):
+    def put(split, src, name, lines, far=False):
         dst = OUT / "images" / split / name
         try:
             os.link(src, dst)  # hardlink: no extra disk space; training never writes images
@@ -131,16 +159,17 @@ def main():
             "".join(l + "\n" for l in lines))
         st = stats[split]
         st["total"] += 1
+        st["far"] += far
         st["background"] += not lines
         st["boxes"].update(CLASSES[int(l.split()[0])] for l in lines)
         st["images"].update({CLASSES[int(l.split()[0])] for l in lines})
 
-    for sess, ev, img, lines in items:
+    for sess, world, far, ev, img, lines in items:
         name = f"{sess}_{ev}_{img.name}"  # file names repeat across sessions
-        if not val_sessions:
-            put("train", img, name, lines); put("val", img, name, lines)
+        if not val_worlds:
+            put("train", img, name, lines, far); put("val", img, name, lines, far)
         else:
-            put("val" if sess in val_sessions else "train", img, name, lines)
+            put("val" if world in val_worlds else "train", img, name, lines, far)
     for i, img in enumerate(bg):
         put("val" if i % 5 == 0 else "train", img, f"background_{img.name}", [])
 
@@ -148,16 +177,27 @@ def main():
         f"path: {OUT.resolve().as_posix()}\ntrain: images/train\nval: images/val\n"
         f"names:\n" + "".join(f"  {i}: {n}\n" for i, n in enumerate(CLASSES)))
 
-    print(f"\nval sessions: {', '.join(sorted(val_sessions)) or '(same as train)'}")
+    print(f"\n{'world':<14}{'sessions':>9}{'images':>8}{'far':>6}  split")
+    for w in sorted(per_world, key=lambda w: (w not in val_worlds, w)):
+        c = per_world[w]
+        print(f"{w:<14}{len(sessions[w]):>9}{c['_images']:>8}{c['_far']:>6}  "
+              f"{'VAL' if w in val_worlds else 'train'}")
     print(f"background images: {len(bg)}" + ("" if BG.is_dir() else f"  ({BG} not found)"))
-    print(f"\n{'class':<16}{'train img':>10}{'train box':>10}{'val img':>9}{'val box':>9}")
+
+    tr, va = stats["train"], stats["val"]
+    pct = lambda v, t: f"{100 * v / (v + t):.0f}%" if v + t else "-"
+    print(f"\n{'class':<16}{'train img':>10}{'train box':>10}{'val img':>9}{'val box':>9}{'val %':>7}")
     for c in CLASSES:
-        tr, va = stats["train"], stats["val"]
-        print(f"{c:<16}{tr['images'][c]:>10}{tr['boxes'][c]:>10}{va['images'][c]:>9}{va['boxes'][c]:>9}")
+        print(f"{c:<16}{tr['images'][c]:>10}{tr['boxes'][c]:>10}{va['images'][c]:>9}{va['boxes'][c]:>9}"
+              f"{pct(va['boxes'][c], tr['boxes'][c]):>7}")
         if not va["boxes"][c]:
             warn(f"no {c!r} boxes in val — its val score will be meaningless")
+        elif val_worlds and not 0.1 <= va["boxes"][c] / (va["boxes"][c] + tr["boxes"][c]) <= 0.35:
+            warn(f"{c!r} val share is far from {VAL_FRAC:.0%} — the worlds can't split it evenly")
     for sp in ("train", "val"):
-        print(f"{sp}: {stats[sp]['total']} images ({stats[sp]['background']} with no boxes)")
+        print(f"{sp}: {stats[sp]['total']} images ({stats[sp]['background']} with no boxes, "
+              f"{stats[sp]['far']} far)")
+    print(f"val share: {pct(va['total'], tr['total'])} of images, {pct(va['far'], tr['far'])} of far images")
     print(f"\nWrote {OUT / 'data.yaml'}")
 
 
