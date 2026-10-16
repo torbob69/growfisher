@@ -1,17 +1,16 @@
 # Display-only detection overlay: a click-through window kept just above Growtopia that draws
-# YOLO boxes. Nothing here feeds the bot — fishing still runs purely on the picked regions.
+# YOLO boxes. Nothing here feeds the bot (YOLO mode runs its own detections in the loop).
 # WGC captures only the Growtopia window, so the overlay never shows up in what the bot sees.
 import ctypes, ctypes.wintypes, threading, time
-from pathlib import Path
 
-import numpy as np
 import win32con, win32gui
 
+import detector
 import utils
 
-MODEL = Path(__file__).resolve().parent / "runs/detect/runs/detect/growfisher-2/weights/best.pt"
-IMGSZ, CONF = 1280, 0.25
-FPS = 10           # inference rate; kept low so the fishing loop keeps its CPU
+CONF = 0.2  # keep <= Autofisher.yolo_conf, or the bot acts on boxes the overlay hides
+FPS = 30           # own inference rate when the bot isn't detecting (~25 ms each on an RTX 4060)
+DRAW_MS = 16       # redraw interval (~60 Hz)
 STALE = 1.0        # hide boxes older than this (s), e.g. if inference stalls
 KEY = "#010203"    # colour Windows makes fully transparent
 COLORS = {"splash": "#38bdf8", "bubble_caught": "#3fb950", "bubble_maxed": "#d29922",
@@ -28,8 +27,8 @@ def visible_rect(hwnd):
 
 
 class Overlay:
-    def __init__(self, on_log=print, model_path=MODEL):
-        self.log, self.model_path = on_log, Path(model_path)
+    def __init__(self, on_log=print):
+        self.log = on_log
         self._stop = threading.Event()
         self._threads = []
         self._dets = None  # (time, (frame_h, frame_w), [(label, conf, (x1, y1, x2, y2)), ...])
@@ -41,8 +40,8 @@ class Overlay:
     def start(self):
         """-> True if the overlay is (now) running."""
         if self.running: return True
-        if not self.model_path.exists():
-            self.log(f"overlay: model not found: {self.model_path}"); return False
+        if not detector.MODEL.exists():
+            self.log(f"overlay: model not found: {detector.MODEL}"); return False
         self._stop.clear()
         self._dets = None
         self._threads = [threading.Thread(target=f, daemon=True) for f in (self._infer, self._ui)]
@@ -54,24 +53,24 @@ class Overlay:
 
     def _infer(self):
         try:
-            import torch
-            from ultralytics import YOLO  # lazy: only needed when the overlay is on
-            model = YOLO(str(self.model_path))
-            device = 0 if torch.cuda.is_available() else "cpu"
+            detector.load(self.log)
         except Exception as e:
             self.log(f"overlay: can't load model ({e})"); self._stop.set(); return
-        self.log(f"overlay: {self.model_path.parent.parent.name} on {'GPU' if device == 0 else 'CPU'}")
         last = None
         while not self._stop.is_set():
             t0 = time.time()
             f = utils.latest_frame()
-            if f is not None and f is not last:  # same object = no new frame, skip
+            shared = detector.last
+            if detector.paused.is_set():
+                self._dets = None  # recycling: no detections, so no boxes either
+            elif shared is not None and t0 - shared[0] < 0.5:
+                # the bot is detecting: show exactly its frames, at its rate, with no extra GPU work
+                self._dets = shared
+                self._stop.wait(0.005)
+                continue
+            elif f is not None and f is not last:  # same object = no new frame, skip
                 try:
-                    r = model.predict(np.ascontiguousarray(f[..., :3]), imgsz=IMGSZ, conf=CONF,
-                                      device=device, verbose=False)[0]
-                    self._dets = (time.time(), f.shape[:2],
-                                  [(r.names[int(c)], s, b) for b, s, c in
-                                   zip(r.boxes.xyxy.tolist(), r.boxes.conf.tolist(), r.boxes.cls.tolist())])
+                    self._dets = (time.time(), f.shape[:2], detector.detect(f, CONF, publish=False))
                 except Exception as e:
                     self.log(f"overlay: inference error ({e})"); self._stop.set(); return
                 last = f
@@ -131,7 +130,7 @@ class Overlay:
                     bx = canvas.bbox(txt)
                     canvas.tag_lower(canvas.create_rectangle(bx[0] - 3, bx[1], bx[2] + 3, bx[3],
                                                              fill=col, outline=col), txt)
-            root.after(33, safe_tick)
+            root.after(DRAW_MS, safe_tick)
 
         def safe_tick():  # Tk swallows callback errors; surface them and shut down instead
             try:

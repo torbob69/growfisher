@@ -20,11 +20,18 @@ from overlay import Overlay
 CALIB_FILE = "calib.json"
 DETO_KEYS = ('deto_pos', 'uranium_img')  # only needed when deto mode is on
 OPTIONAL_KEYS = ('fav_img',)             # unset = feature off, Start still allowed
+YOLO_KEYS = ('splash_img', 'nothing_img', 'emptier_img')  # replaced by the model in YOLO mode
 THRESHOLD_DEFAULTS = {  # mirrors Autofisher's own defaults (autofisher.py)
     'splash_diff':       15,
     'nothing_threshold': 0.5,
     'emptier_threshold': 0.35,
     'fav_diff_px':       1,
+    # per-class YOLO confidence (YOLO mode)
+    'conf_splash':         0.2,
+    'conf_bubble_nothing': 0.2,
+    'conf_bubble_emptier': 0.2,
+    'conf_bubble_caught':  0.2,
+    'conf_bubble_maxed':   0.2,
 }
 
 CFG_ITEMS = [
@@ -53,6 +60,7 @@ class Api:
         self.cfg       = {k: None for k, *_ in CFG_ITEMS}
         self.deto      = True
         self.record    = False
+        self.yolo      = False  # True = fishing events come from the YOLO model
         self.overlay   = False  # display-only YOLO boxes over Growtopia
         self._overlay  = Overlay(on_log=lambda m: self._log(m))
         self.cast_delay = None  # None = random 0.1-0.35s (Autofisher default)
@@ -91,6 +99,7 @@ class Api:
             'deto':      self.deto,
             'record':    self.record,
             'overlay':   self.overlay,
+            'yolo':      self.yolo,
             'fish':      getattr(self._fisher, 'fish', 0),
             'elapsed':   elapsed,
         })
@@ -100,6 +109,14 @@ class Api:
         self.deto = bool(on)
         self._save_calib()
         self._log(f"deto mode {'on' if self.deto else 'off'}")
+        self._check_ready()
+        self._state()
+
+    def set_yolo(self, on):
+        if self.running: return
+        self.yolo = bool(on)
+        self._save_calib()
+        self._log(f"detection mode: {'YOLO model' if self.yolo else 'picked regions'}")
         self._check_ready()
         self._state()
 
@@ -141,7 +158,8 @@ class Api:
 
     def _required(self):
         return [k for k in self.cfg
-                if k not in OPTIONAL_KEYS and (self.deto or k not in DETO_KEYS)]
+                if k not in OPTIONAL_KEYS and (self.deto or k not in DETO_KEYS)
+                and not (self.yolo and k in YOLO_KEYS)]
 
     def _ready(self):
         return all(self.cfg[k] is not None for k in self._required())
@@ -203,6 +221,7 @@ class Api:
             for k, label, kind, save in CFG_ITEMS:
                 if k in OPTIONAL_KEYS: continue  # set it from its own row if you want it
                 if not self.deto and k in DETO_KEYS: continue
+                if self.yolo and k in YOLO_KEYS: continue
                 self._push({'type': 'cfg_update', 'key': k, 'text': 'Capturing...', 'ok': False})
                 if kind == 'pos':
                     self._instr(f"Move to {label.upper()}, then hold CTRL")
@@ -244,7 +263,8 @@ class Api:
     def _fish_thread(self):
         try:
             self._fisher = Autofisher(cfg={**self.cfg, 'deto': self.deto, 'cast_delay': self.cast_delay,
-                                            'record': self.record, **self.thresholds},
+                                            'record': self.record, 'yolo': self.yolo,
+                                            **self.thresholds},
                                       stop_event=self.stop_event,
                                       on_log=self._log, paused=lambda: self.pause)
             self._fisher.loop()
@@ -286,7 +306,8 @@ class Api:
     def _save_calib(self):
         with open(CALIB_FILE, 'w') as f:
             json.dump({**self.cfg, 'deto': self.deto, 'cast_delay': self.cast_delay,
-                       'record': self.record, 'overlay': self.overlay, **self.thresholds}, f, indent=2)
+                       'record': self.record, 'overlay': self.overlay, 'yolo': self.yolo,
+                       **self.thresholds}, f, indent=2)
 
     def load_calibration(self):
         if not os.path.exists(CALIB_FILE): return
@@ -296,6 +317,7 @@ class Api:
             self._log(f"calib load failed: {e}"); return
         self.deto = bool(data.get('deto', True))
         self.record = bool(data.get('record', False))
+        self.yolo = bool(data.get('yolo', False))
         self.overlay = bool(data.get('overlay', False))
         if self.overlay:
             self.overlay = self._overlay.start()
