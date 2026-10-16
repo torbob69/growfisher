@@ -95,6 +95,7 @@ class Autofisher:
             click(*self.first_fish_pos)
 
     CAST_COOLDOWN = 2  # blanks detection during cast/catch animations
+    DETECT_FPS = 3    # caps YOLO inference; CPU usage scales with this
 
     def loop(self):
         self.rec.start(cfg=self.cfg)
@@ -120,8 +121,8 @@ class Autofisher:
         detector.load(self.log)
         warm = latest_frame()
         if warm is not None:
-            detector.detect(warm)  # first CUDA call is slow — pay it before the first bite
-        # ponytail: model has no uranium class yet -> fall back to the picked region for deto
+            detector.detect(warm)
+    
         yolo_uranium = "uranium" in detector.names()
         confs = {n: float(getattr(self, f"conf_{n}", 0.5)) for n in detector.names()}
         floor = min(confs.values())  # model returns everything above the lowest; filtered per class below
@@ -131,17 +132,18 @@ class Autofisher:
         self.cast()
         last_cast = time.time()
         armed = {}  # label -> may fire (False until it has disappeared after firing)
-        last = None
+        last, last_detect = None, 0.0
 
         while not self.stopped():
             self.wait_while_paused()
             if self.stopped() or self._fav_changed(): break
 
             f = latest_frame()
-            if f is None or f is last:  # no new frame yet
+            # no new frame yet, or too soon since the last inference
+            if f is None or f is last or time.time() - last_detect < 1 / self.DETECT_FPS:
                 time.sleep(0.01)
                 continue
-            last = f
+            last, last_detect = f, time.time()
             dets = [d for d in detector.detect(f, conf=floor, publish=False) if d[1] >= confs.get(d[0], 0.5)]
             detector.last = (time.time(), f.shape[:2], dets)  # overlay shows exactly what counts
             seen = {}

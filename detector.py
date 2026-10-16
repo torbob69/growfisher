@@ -21,12 +21,11 @@ def load(log=print):
         if _model is None:
             if not MODEL.exists():
                 raise FileNotFoundError(f"YOLO model not found: {MODEL}")
-            import torch
             from ultralytics import YOLO
             _model = YOLO(str(MODEL))
             # .onnx runs on CPU onnxruntime. Asking ultralytics for GPU makes it pip-install
             # onnxruntime-gpu over the CPU package RapidOCR has loaded — that broke the venv once.
-            _device = 0 if torch.cuda.is_available() and MODEL.suffix == ".pt" else "cpu"
+            _device = "cpu"
             log(f"YOLO {MODEL.parent.parent.name} loaded on {'GPU' if _device == 0 else 'CPU'}")
     return _model
 
