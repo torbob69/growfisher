@@ -1,7 +1,11 @@
 # Shared YOLO detector: one model on the GPU for both the bot and the overlay.
 # torch/ultralytics are imported lazily, so region mode runs without them installed.
-import threading, time
+import os, threading, time
 from pathlib import Path
+
+# torch's OpenMP threads busy-wait between runs too (measured 36% -> 11% total CPU at 3 fps).
+# Read once when torch loads, so it must be set before ultralytics imports it.
+os.environ.setdefault("OMP_WAIT_POLICY", "PASSIVE")
 
 import numpy as np
 
@@ -15,12 +19,28 @@ last = None  # (time, (frame_h, frame_w), dets) of the latest published detect()
              # the overlay draws from here instead of running inference twice
 
 
+def _no_spin():
+    # onnxruntime's worker threads busy-wait between runs by default: measured 57% total CPU at
+    # 3 fps vs 11% with spinning off, and lowering the fps made it worse, not better.
+    # ponytail: ultralytics gives no way to pass SessionOptions, so wrap the constructor
+    import onnxruntime as ort
+    if getattr(ort.InferenceSession, "_no_spin", False): return
+    Session = ort.InferenceSession
+    def session(path, opts=None, *a, **kw):
+        opts = opts or ort.SessionOptions()
+        opts.add_session_config_entry("session.intra_op.allow_spinning", "0")
+        return Session(path, opts, *a, **kw)
+    session._no_spin = True
+    ort.InferenceSession = session
+
+
 def load(log=print):
     global _model, _device
     with _lock:
         if _model is None:
             if not MODEL.exists():
                 raise FileNotFoundError(f"YOLO model not found: {MODEL}")
+            _no_spin()
             from ultralytics import YOLO
             _model = YOLO(str(MODEL))
             # .onnx runs on CPU onnxruntime. Asking ultralytics for GPU makes it pip-install

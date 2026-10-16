@@ -95,7 +95,7 @@ class Autofisher:
             click(*self.first_fish_pos)
 
     CAST_COOLDOWN = 2  # blanks detection during cast/catch animations
-    DETECT_FPS = 3    # caps YOLO inference; CPU usage scales with this
+    DETECT_FPS = 15    # caps YOLO inference; CPU usage scales with this
 
     def loop(self):
         self.rec.start(cfg=self.cfg)

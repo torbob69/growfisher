@@ -9,7 +9,7 @@ import detector
 import utils
 
 CONF = 0.2  # keep <= Autofisher.yolo_conf, or the bot acts on boxes the overlay hides
-FPS = 10           # own inference rate when the bot isn't detecting (~25 ms each on an RTX 4060)
+FPS = 15          # own inference rate when the bot isn't detecting (~25 ms each on an RTX 4060)
 DRAW_MS = 16       # redraw interval (~60 Hz)
 STALE = 1.0        # hide boxes older than this (s), e.g. if inference stalls
 KEY = "#010203"    # colour Windows makes fully transparent
