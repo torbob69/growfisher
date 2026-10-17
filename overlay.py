@@ -1,5 +1,6 @@
 # Display-only detection overlay: a click-through window kept just above Growtopia that draws
-# YOLO boxes. Nothing here feeds the bot (YOLO mode runs its own detections in the loop).
+# the boxes the bot's YOLO loop publishes in detector.last. It never runs inference itself, so it
+# can't compete with the bot for the CPU — and shows nothing until the bot is started.
 # WGC captures only the Growtopia window, so the overlay never shows up in what the bot sees.
 import ctypes, ctypes.wintypes, threading, time
 
@@ -8,10 +9,8 @@ import win32con, win32gui
 import detector
 import utils
 
-CONF = 0.2  # keep <= Autofisher.yolo_conf, or the bot acts on boxes the overlay hides
-FPS = 15          # own inference rate when the bot isn't detecting (~25 ms each on an RTX 4060)
 DRAW_MS = 16       # redraw interval (~60 Hz)
-STALE = 1.0        # hide boxes older than this (s), e.g. if inference stalls
+STALE = 3.0        # hide boxes older than this (s), e.g. after the bot stops; > one CPU inference
 KEY = "#010203"    # colour Windows makes fully transparent
 COLORS = {"splash": "#38bdf8", "bubble_caught": "#3fb950", "bubble_maxed": "#d29922",
           "bubble_nothing": "#f85149", "bubble_emptier": "#a371f7"}
@@ -31,7 +30,6 @@ class Overlay:
         self.log = on_log
         self._stop = threading.Event()
         self._threads = []
-        self._dets = None  # (time, (frame_h, frame_w), [(label, conf, (x1, y1, x2, y2)), ...])
 
     @property
     def running(self):
@@ -40,41 +38,13 @@ class Overlay:
     def start(self):
         """-> True if the overlay is (now) running."""
         if self.running: return True
-        if not detector.MODEL.exists():
-            self.log(f"overlay: model not found: {detector.MODEL}"); return False
         self._stop.clear()
-        self._dets = None
-        self._threads = [threading.Thread(target=f, daemon=True) for f in (self._infer, self._ui)]
+        self._threads = [threading.Thread(target=self._ui, daemon=True)]
         for t in self._threads: t.start()
         return True
 
     def stop(self):
         self._stop.set()
-
-    def _infer(self):
-        try:
-            detector.load(self.log)
-        except Exception as e:
-            self.log(f"overlay: can't load model ({e})"); self._stop.set(); return
-        last = None
-        while not self._stop.is_set():
-            t0 = time.time()
-            f = utils.latest_frame()
-            shared = detector.last
-            if detector.paused.is_set():
-                self._dets = None  # recycling: no detections, so no boxes either
-            elif shared is not None and t0 - shared[0] < 0.5:
-                # the bot is detecting: show exactly its frames, at its rate, with no extra GPU work
-                self._dets = shared
-                self._stop.wait(0.005)
-                continue
-            elif f is not None and f is not last:  # same object = no new frame, skip
-                try:
-                    self._dets = (time.time(), f.shape[:2], detector.detect(f, CONF, publish=False))
-                except Exception as e:
-                    self.log(f"overlay: inference error ({e})"); self._stop.set(); return
-                last = f
-            self._stop.wait(max(0.0, 1 / FPS - (time.time() - t0)))
 
     def _ui(self):
         import tkinter as tk
@@ -117,7 +87,7 @@ class Overlay:
                 win32gui.SetWindowPos(me, above or win32con.HWND_TOP, l, t, r - l, b - t, flags)
                 state["geo"] = (l, t, r, b)
             canvas.delete("all")
-            d = self._dets
+            d = None if detector.paused.is_set() else detector.last  # recycling: no boxes
             if d and time.time() - d[0] < STALE:
                 (fh, fw), dets = d[1], d[2]
                 sx, sy = (r - l) / fw, (b - t) / fh  # frame px -> screen px (1.0 when they match)
