@@ -8,17 +8,58 @@ const CFG_ITEMS = [
   { key: 'first_fish_pos', label: 'First fish',     kind: 'pos'    },
   { key: 'recycle_pos',    label: 'Recycle button', kind: 'pos'    },
   { key: 'uranium_img',    label: 'Uranium region', kind: 'region', deto: true },
-  { key: 'splash_img',     label: 'Splash region',  kind: 'region', threshold: 'splash_diff' },
-  { key: 'nothing_img',    label: 'Nothing notif',  kind: 'region', threshold: 'nothing_threshold' },
-  { key: 'emptier_img',    label: 'Inv. emptier',   kind: 'region', threshold: 'emptier_threshold' },
+  { key: 'splash_img',     label: 'Splash region',  kind: 'region', threshold: 'splash_diff',       yolo: true },
+  { key: 'nothing_img',    label: 'Nothing notif',  kind: 'region', threshold: 'nothing_threshold', yolo: true },
+  { key: 'emptier_img',    label: 'Inv. emptier',   kind: 'region', threshold: 'emptier_threshold', yolo: true },
   { key: 'empty_fish_img', label: 'Empty fish',     kind: 'region' },
   { key: 'number_bbox',    label: 'Recycle number', kind: 'region' },
   { key: 'fav_img',        label: 'Fav item',       kind: 'region', threshold: 'fav_diff_px', optional: true },
 ]
 
-const THRESHOLD_DEFAULTS = { splash_diff: 15, nothing_threshold: 0.5, emptier_threshold: 0.35, fav_diff_px: 1 }
+const THRESHOLD_DEFAULTS = {
+  splash_diff: 15, nothing_threshold: 0.5, emptier_threshold: 0.35, fav_diff_px: 1,
+  conf_splash: 0.2, conf_bubble_nothing: 0.2, conf_bubble_emptier: 0.2, conf_bubble_caught: 0.2, conf_bubble_maxed: 0.2,
+}
+
+// YOLO mode: min confidence for each class to count as detected
+const YOLO_CONFS = [
+  { key: 'conf_splash',         label: 'Splash' },
+  { key: 'conf_bubble_nothing', label: 'Nothing bubble' },
+  { key: 'conf_bubble_emptier', label: 'Emptier bubble' },
+  { key: 'conf_bubble_caught',  label: 'Caught bubble' },
+  { key: 'conf_bubble_maxed',   label: 'Maxed bubble' },
+]
+
+function ThresholdInput({ k, value, disabled, title, onChange }) {
+  return (
+    <input
+      type="number"
+      step="0.01"
+      min="0"
+      disabled={disabled}
+      value={value ?? ''}
+      placeholder={String(THRESHOLD_DEFAULTS[k])}
+      title={title}
+      aria-label={title}
+      onChange={e => onChange(e.target.value)}
+      onBlur={e => api()?.set_threshold(k, e.target.value)}
+      style={{
+        width: '55px',
+        flexShrink: 0,
+        fontFamily: "'VT323', monospace",
+        fontSize: '16px',
+        color: 'var(--gt-text)',
+        background: 'var(--gt-surface-lo)',
+        border: '2px solid var(--gt-bevel-lo)',
+        borderRadius: '3px',
+        padding: '2px 6px',
+      }}
+    />
+  )
+}
 
 const api = () => window.pywebview?.api
+const RELEASE = import.meta.env.MODE === 'release'  // `npm run build:release`: no dataset recording
 
 export default function App() {
   const [status,     setStatus]     = useState({ text: 'Idle — configure positions below', color: 'var(--gt-green)' })
@@ -31,6 +72,7 @@ export default function App() {
   const [deto,       setDeto]       = useState(true)
   const [record,     setRecord]     = useState(false)
   const [overlay,    setOverlay]    = useState(false)
+  const [yolo,       setYolo]       = useState(false)
   const [castDelay,  setCastDelay]  = useState('')
   const [thresholds, setThresholds] = useState({})
   const [fish,       setFish]       = useState(0)
@@ -56,7 +98,9 @@ export default function App() {
         setPaused(ev.paused)
         setDeto(ev.deto)
         setRecord(ev.record)
+        if (RELEASE && ev.record) api()?.set_record(false)  // a calib.json saved with Rec on
         setOverlay(ev.overlay)
+        setYolo(ev.yolo)
         setFish(ev.fish)
         setElapsed(ev.elapsed)
       }
@@ -71,7 +115,7 @@ export default function App() {
   const openLog  = () => { setLogOpen(true);  setUnreadLogs(0) }
   const closeLog = () => { setLogOpen(false); setUnreadLogs(0) }
 
-  const items  = CFG_ITEMS.filter(i => deto || !i.deto)
+  const items  = CFG_ITEMS.filter(i => (deto || !i.deto) && !(yolo && i.yolo))
   const allSet = items.every(i => i.optional || cfg[i.key]?.ok)
   const busy   = running || capturing
 
@@ -190,11 +234,11 @@ export default function App() {
 
         {/* Configuration */}
         <div className="gt-panel">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
             <div style={{ fontFamily: "'VT323', monospace", fontSize: '13px', letterSpacing: '2.5px', color: 'var(--gt-amber)', textShadow: '0 1px 3px rgba(0,0,0,0.7)' }}>
               &gt;&gt; CONFIGURATION
             </div>
-            <div style={{ display: 'flex', gap: '6px' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: '6px' }}>
               <button
                 disabled={busy}
                 onClick={() => api()?.set_deto(!deto)}
@@ -203,14 +247,16 @@ export default function App() {
               >
                 Deto: {deto ? 'ON' : 'OFF'}
               </button>
-              <button
-                disabled={busy}
-                onClick={() => api()?.set_record(!record)}
-                aria-pressed={record}
-                className={`gt-btn ${record ? 'gt-btn-green' : 'gt-btn-red'}`}
-              >
-                Rec: {record ? 'ON' : 'OFF'}
-              </button>
+              {!RELEASE && (
+                <button
+                  disabled={busy}
+                  onClick={() => api()?.set_record(!record)}
+                  aria-pressed={record}
+                  className={`gt-btn ${record ? 'gt-btn-green' : 'gt-btn-red'}`}
+                >
+                  Rec: {record ? 'ON' : 'OFF'}
+                </button>
+              )}
               <button
                 onClick={() => api()?.set_overlay(!overlay)}
                 aria-pressed={overlay}
@@ -218,6 +264,15 @@ export default function App() {
                 className={`gt-btn ${overlay ? 'gt-btn-green' : 'gt-btn-red'}`}
               >
                 Boxes: {overlay ? 'ON' : 'OFF'}
+              </button>
+              <button
+                disabled={busy}
+                onClick={() => api()?.set_yolo(!yolo)}
+                aria-pressed={yolo}
+                title="Where fishing events come from: the YOLO model or your picked regions"
+                className={`gt-btn ${yolo ? 'gt-btn-green' : 'gt-btn-blue'}`}
+              >
+                Detect: {yolo ? 'YOLO' : 'Regions'}
               </button>
               <button disabled={busy} onClick={() => api()?.start_setup_all()} className="gt-btn gt-btn-blue">
                 Setup All
@@ -244,27 +299,12 @@ export default function App() {
                   {cfg[key]?.text ?? '-- not set --'}
                 </span>
                 {threshold && (
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
+                  <ThresholdInput
+                    k={threshold}
+                    value={thresholds[threshold]}
                     disabled={busy}
-                    value={thresholds[threshold] ?? ''}
-                    placeholder={String(THRESHOLD_DEFAULTS[threshold])}
                     title="Match threshold"
-                    onChange={e => setThresholds(t => ({ ...t, [threshold]: e.target.value }))}
-                    onBlur={e => api()?.set_threshold(threshold, e.target.value)}
-                    style={{
-                      width: '55px',
-                      flexShrink: 0,
-                      fontFamily: "'VT323', monospace",
-                      fontSize: '16px',
-                      color: 'var(--gt-text)',
-                      background: 'var(--gt-surface-lo)',
-                      border: '2px solid var(--gt-bevel-lo)',
-                      borderRadius: '3px',
-                      padding: '2px 6px',
-                    }}
+                    onChange={v => setThresholds(t => ({ ...t, [threshold]: v }))}
                   />
                 )}
                 <button disabled={busy} onClick={() => api()?.capture_item(key, kind)} className="gt-btn gt-btn-blue">
@@ -272,6 +312,27 @@ export default function App() {
                 </button>
               </div>
             ))}
+            {yolo && (
+              <>
+                <div style={{ fontFamily: "'VT323', monospace", fontSize: '13px', letterSpacing: '2.5px', color: 'var(--gt-amber)', padding: '8px 0 2px' }}>
+                  YOLO CONFIDENCE
+                </div>
+                {YOLO_CONFS.map(({ key, label }) => (
+                  <div key={key} className="gt-row">
+                    <span style={{ fontFamily: "'VT323', monospace", fontSize: '17px', color: 'var(--gt-text-muted)', flex: 1 }}>
+                      {label}
+                    </span>
+                    <ThresholdInput
+                      k={key}
+                      value={thresholds[key]}
+                      disabled={busy}
+                      title={`Min confidence for ${label.toLowerCase()} (0-1)`}
+                      onChange={v => setThresholds(t => ({ ...t, [key]: v }))}
+                    />
+                  </div>
+                ))}
+              </>
+            )}
             <div className="gt-row">
               <span style={{ fontFamily: "'VT323', monospace", fontSize: '17px', color: 'var(--gt-text-muted)', width: '130px', flexShrink: 0 }}>
                 Cast delay (s)
